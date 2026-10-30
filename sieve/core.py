@@ -143,9 +143,9 @@ def check_test_claim(body, files):
 def check_triviality(files):
     if not files:
         return finding("substance", FAIL, "PR changes no files", penalty=30)
+    squash = lambda lines: sorted("".join(l.split()) for l in lines if l.strip())  # ignore all whitespace
     whitespace_only = all(
-        sorted(l.strip() for l in added_lines(f.get("patch")) if l.strip()) ==
-        sorted(l.strip() for l in removed_lines(f.get("patch")) if l.strip())
+        squash(added_lines(f.get("patch"))) == squash(removed_lines(f.get("patch")))
         for f in files if f.get("patch") is not None
     ) and any(f.get("patch") for f in files)
     if whitespace_only:
