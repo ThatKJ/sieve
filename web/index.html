@@ -3,151 +3,38 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sieve — Know Which Pull Requests Deserve Your Time</title>
-  <meta name="description" content="Open-source pull request intake checks. Evaluates what a PR claims against what it actually contains with deterministic checks and local AI judgment.">
+  <title>Sieve: verify what a pull request actually changes</title>
+  <meta name="description" content="Sieve maps a repository's import graph, overlays a pull request's impact, and verifies what the PR claims against what it contains. Read-only, local open-weight model.">
   <link rel="stylesheet" href="style.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><g fill='%2322231F'><circle cx='3' cy='3' r='1.5'/><circle cx='8' cy='3' r='1.5'/><circle cx='13' cy='3' r='1.5'/><circle cx='3' cy='8' r='1.5'/><circle cx='8' cy='8' r='1.5'/><circle cx='13' cy='8' r='1.5'/><circle cx='8' cy='13' r='1.5'/></g></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><g fill='%231d1d1f'><circle cx='3' cy='3' r='1.5'/><circle cx='8' cy='3' r='1.5'/><circle cx='13' cy='3' r='1.5'/><circle cx='3' cy='8' r='1.5'/><circle cx='8' cy='8' r='1.5'/><circle cx='13' cy='8' r='1.5'/><circle cx='8' cy='13' r='1.5'/></g></svg>">
 </head>
 <body>
-  <div class="ambient-glow" aria-hidden="true"></div>
+  <a class="skip" href="#main">Skip to content</a>
 
-  <header class="site-header">
-    <div class="header-inner">
-      <a class="brand" href="/" aria-label="Sieve home">
-        <span class="sieve-glyph" aria-hidden="true">
-          <span></span><span></span><span></span>
-          <span></span><span></span><span></span>
-          <span></span><span></span><span></span>
-        </span>
-        <span class="brand-text">sieve</span>
-        <span class="brand-badge">read-only</span>
-      </a>
-
-      <div class="status-strip" id="status" aria-live="polite">
-        <!-- Rendered by app.js: model status, read-only pill, cache status -->
-      </div>
-    </div>
+  <header class="toolbar glass" role="banner">
+    <a class="brand" href="/" aria-label="Sieve, home"><span class="mesh" aria-hidden="true"></span>sieve</a>
+    <form id="form" class="field" role="search" autocomplete="off">
+      <label for="target" class="sr">Pull request or repository</label>
+      <svg class="field-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="target" spellcheck="false" placeholder="owner/repo#123 or owner/repo">
+      <button type="submit" id="go" class="btn primary">Inspect</button>
+    </form>
+    <div class="status" id="status" aria-live="polite"></div>
   </header>
 
-  <main class="site-main" id="main-content">
-    <section class="command-section">
-      <form id="form" class="command-bar" autocomplete="off" role="search">
-        <div class="command-field">
-          <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-          <label for="target" class="sr-only">Pull request or repository</label>
-          <input id="target" name="target" spellcheck="false" autocomplete="off"
-                 placeholder="Paste a pull request or repository (e.g. owner/repo#123 or owner/repo)">
-          <button type="button" id="clear-btn" class="clear-btn" aria-label="Clear input" hidden title="Clear input">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-          <span class="command-hint" aria-hidden="true"><kbd>↵</kbd> Check</span>
-        </div>
-        <button type="submit" id="go" class="action-btn">
-          <span class="btn-text">Check</span>
-        </button>
-      </form>
-      <div class="error-banner" id="error" role="alert" hidden></div>
-    </section>
-
-    <!-- INTRO / HERO VIEW -->
-    <section id="intro" class="hero-view">
-      <div class="hero-content">
-        <div class="hero-eyebrow">
-          <span class="eyebrow-dot"></span>
-          <span>Open-Source Maintainer Toolkit</span>
-        </div>
-        <h1 class="hero-title">Know which pull requests deserve your time.</h1>
-        <p class="hero-lead">
-          Maintainers are flooded with pull requests — from high-effort gems to AI-generated noise. Sieve inspects what a PR <em>claims</em> against what it actually <em>contains</em>, cross-referencing linked issues, claimed tests, real file paths, and your contribution guidelines.
-        </p>
-
-        <!-- Trust indicators strip -->
-        <div class="trust-grid">
-          <div class="trust-card">
-            <div class="trust-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-            </div>
-            <div class="trust-text">
-              <h3>Read-only by design</h3>
-              <p>Never comments, labels, or closes pull requests. Produces a polished draft reply for you to send.</p>
-            </div>
-          </div>
-
-          <div class="trust-card">
-            <div class="trust-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-            </div>
-            <div class="trust-text">
-              <h3>Runs locally on open weights</h3>
-              <p>Relevance judgment powered by <span class="code-pill" id="hero-model-pill">qwen3.5:9b</span> via Ollama. No API costs, no code leaves your machine.</p>
-            </div>
-          </div>
-
-          <div class="trust-card">
-            <div class="trust-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-            </div>
-            <div class="trust-text">
-              <h3>Evidence-backed checks</h3>
-              <p>Every claim is mapped to actual Git trees, AST imports, and commit diffs. Zero hallucinated findings.</p>
-            </div>
-          </div>
-
-          <div class="trust-card">
-            <div class="trust-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-            </div>
-            <div class="trust-text">
-              <h3>Fair to newcomers</h3>
-              <p>Judges the actual work, not contributor reputation or account age. No automated gates or rejections.</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Examples section -->
-        <div class="examples-container">
-          <div class="examples-header">
-            <span class="examples-label">Try an inspection</span>
-            <span class="examples-hint">Click any case to inspect real data</span>
-          </div>
-          <div class="examples-grid" id="examples">
-            <!-- Rendered by app.js -->
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- REPORT VIEW -->
-    <section id="report" class="report-view" hidden aria-live="polite">
-      <!-- Rendered dynamically by app.js -->
-    </section>
-
-    <!-- QUEUE VIEW -->
-    <section id="queue" class="queue-view" hidden aria-live="polite">
-      <!-- Rendered dynamically by app.js -->
-    </section>
+  <main id="main">
+    <p class="banner" id="error" role="alert" hidden></p>
+    <section id="home" class="view"></section>
+    <section id="review" class="view" hidden></section>
+    <section id="repo" class="view" hidden></section>
   </main>
 
-  <footer class="site-footer">
-    <div class="footer-inner">
-      <div class="footer-left">
-        <span class="footer-brand">sieve</span>
-        <span class="footer-sep">·</span>
-        <span>MIT Licensed Open Source</span>
-        <span class="footer-sep">·</span>
-        <a href="https://github.com/ThatKJ/sieve" target="_blank" rel="noopener noreferrer" class="footer-link">
-          github.com/ThatKJ/sieve
-        </a>
-      </div>
-      <div class="footer-right">
-        <span>Deterministic rules + Local LLM judgment</span>
-      </div>
-    </div>
+  <footer class="foot">
+    <span>Sieve · MIT licensed · <a href="https://github.com/ThatKJ/sieve">source</a></span>
+    <span>Read-only on GitHub. Contributor code is never executed.</span>
   </footer>
 
+  <script src="atlas.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
