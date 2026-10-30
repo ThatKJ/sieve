@@ -23,7 +23,7 @@ window.SieveCommandCenter = (function () {
 
   function render(shadowRoot, repoContext, queueData, engineStatus, callbacks = {}) {
     const rows = (queueData && queueData.rows) || [];
-    let activeNav = "all"; // all, action_needed_you, waiting_on_contributor, blocked, bot_stream, merge_candidate, or collection:name
+    let activeNav = "all"; // all, action_needed_you, waiting_on_contributor, blocked, bot_stream, merge_candidate, or usercol:name
     let searchQuery = "";
     let activeSort = "blast_desc";
     let selectedPR = rows[0] || null;
@@ -34,6 +34,7 @@ window.SieveCommandCenter = (function () {
       chrome.storage.local.get("sieveCollections", (res) => {
         if (res.sieveCollections && res.sieveCollections[repoContext.ref]) {
           customCollections = res.sieveCollections[repoContext.ref];
+          renderCollections();
         }
       });
     }
@@ -51,11 +52,11 @@ window.SieveCommandCenter = (function () {
       el("span", { class: "sieve-brand-title", text: "Sieve Workspace" })
     ]);
 
-    // Nav Group: Workspace
+    // Navigation items
     const navGroupWorkspace = el("div", { class: "sieve-nav-group" });
-    navGroupWorkspace.append(el("div", { class: "sieve-nav-heading", text: "Workspace" }));
+    const wsHeading = el("div", { class: "sieve-nav-heading", text: "Workspace" });
 
-    // Count helpers
+    const countAll = rows.length;
     const countAction = rows.filter((r) => r.turn_status === "action_needed_you" && !r.is_bot).length;
     const countWaiting = rows.filter((r) => r.turn_status === "waiting_on_contributor").length;
     const countBlocked = rows.filter((r) => r.turn_status === "blocked" || r.draft).length;
@@ -63,93 +64,76 @@ window.SieveCommandCenter = (function () {
     const countBots = rows.filter((r) => r.is_bot).length;
     const countMerge = rows.filter((r) => r.turn_status === "merge_candidate" && !r.is_bot).length;
 
-    const navItems = [
-      { id: "all", label: "All Pull Requests", icon: "📂", count: rows.length },
-      { id: "action_needed_you", label: "Needs My Attention", icon: "📥", count: countAction },
-      { id: "waiting_on_contributor", label: "Waiting on Author", icon: "⏳", count: countWaiting },
-      { id: "blocked", label: "Blocked & Conflicts", icon: "⚠️", count: countBlocked },
-      { id: "collisions", label: "Overlapping & Dups", icon: "🔀", count: countCollisions },
-      { id: "bot_stream", label: "Bot PR Stream", icon: "🤖", count: countBots },
-      { id: "merge_candidate", label: "Merge Candidates", icon: "✅", count: countMerge }
-    ];
-
     const navButtons = {};
-    navItems.forEach((item) => {
+
+    function makeNavItem(id, icon, label, count) {
       const btn = el("button", {
         type: "button",
-        class: `sieve-nav-item ${activeNav === item.id ? "active" : ""}`,
-        onclick: () => selectNav(item.id)
+        class: `sieve-nav-item ${activeNav === id ? "active" : ""}`,
+        onclick: () => selectNav(id)
       }, [
-        el("span", { class: "sieve-nav-icon", text: item.icon }),
-        el("span", { text: item.label }),
-        item.count > 0 ? el("span", { class: "sieve-nav-count", text: String(item.count) }) : null
+        el("span", { class: "sieve-nav-icon", text: icon }),
+        el("span", { text: label }),
+        count !== undefined && count > 0 ? el("span", { class: "sieve-nav-count", text: String(count) }) : null
       ]);
-      navButtons[item.id] = btn;
-      navGroupWorkspace.append(btn);
-    });
+      navButtons[id] = btn;
+      return btn;
+    }
 
-    // Nav Group: Collections
-    const navGroupCollections = el("div", { class: "sieve-nav-group" });
+    navGroupWorkspace.append(
+      wsHeading,
+      makeNavItem("all", "📂", "All Pull Requests", countAll),
+      makeNavItem("action_needed_you", "📥", "Needs My Attention", countAction),
+      makeNavItem("waiting_on_contributor", "⏳", "Waiting on Author", countWaiting),
+      makeNavItem("blocked", "⚠️", "Blocked & Conflicts", countBlocked),
+      makeNavItem("collisions", "🔀", "Overlapping & Dups", countCollisions),
+      makeNavItem("bot_stream", "🤖", "Bot PR Stream", countBots),
+      makeNavItem("merge_candidate", "✅", "Merge Candidates", countMerge)
+    );
+
+    // Custom Collections Group
+    const navGroupCollections = el("div", { class: "sieve-nav-group", style: "margin-top: 10px;" });
     const collHeading = el("div", { class: "sieve-nav-heading", text: "Collections" });
-    const collListContainer = el("div", { class: "sieve-nav-group" });
+    const collListContainer = el("div", { style: "display: flex; flex-direction: column; gap: 4px;" });
 
     function renderCollections() {
       collListContainer.replaceChildren();
-      const standardCollections = [
-        { id: "col:security", label: "Security Review", icon: "🔒" },
-        { id: "col:release", label: "Release Candidates", icon: "🚀" },
-        { id: "col:docs", label: "Documentation", icon: "📄" }
-      ];
-
-      standardCollections.forEach((c) => {
-        const btn = el("button", {
-          type: "button",
-          class: `sieve-nav-item ${activeNav === c.id ? "active" : ""}`,
-          onclick: () => selectNav(c.id)
-        }, [
-          el("span", { class: "sieve-nav-icon", text: c.icon }),
-          el("span", { text: c.label })
-        ]);
-        collListContainer.append(btn);
-      });
-
-      // User collections
-      Object.keys(customCollections).forEach((name) => {
-        const btn = el("button", {
-          type: "button",
-          class: `sieve-nav-item ${activeNav === `usercol:${name}` ? "active" : ""}`,
-          onclick: () => selectNav(`usercol:${name}`)
-        }, [
-          el("span", { class: "sieve-nav-icon", text: "📁" }),
-          el("span", { text: name }),
-          el("button", {
+      const keys = Object.keys(customCollections);
+      if (!keys.length) {
+        // default empty items for inspiration
+        ["Security Review", "Release Candidates", "Documentation"].forEach((colName) => {
+          const item = el("button", {
             type: "button",
-            style: "margin-left: auto; color: #a19f9a; font-size: 11px;",
-            text: "×",
-            title: "Delete collection",
-            onclick: (e) => {
-              e.stopPropagation();
-              delete customCollections[name];
-              if (chrome.storage && chrome.storage.local) {
-                chrome.storage.local.get("sieveCollections", (res) => {
-                  const sc = res.sieveCollections || {};
-                  sc[repoContext.ref] = customCollections;
-                  chrome.storage.local.set({ sieveCollections: sc });
-                });
-              }
-              renderCollections();
-              if (activeNav === `usercol:${name}`) selectNav("all");
-            }
-          })
-        ]);
-        collListContainer.append(btn);
-      });
+            class: `sieve-nav-item ${activeNav === `usercol:${colName}` ? "active" : ""}`,
+            onclick: () => selectNav(`usercol:${colName}`)
+          }, [
+            el("span", { class: "sieve-nav-icon", text: colName.includes("Security") ? "🔒" : colName.includes("Release") ? "🚀" : "📄" }),
+            el("span", { text: colName })
+          ]);
+          collListContainer.append(item);
+        });
+      } else {
+        keys.forEach((colName) => {
+          const prs = customCollections[colName].prNumbers || [];
+          const item = el("button", {
+            type: "button",
+            class: `sieve-nav-item ${activeNav === `usercol:${colName}` ? "active" : ""}`,
+            onclick: () => selectNav(`usercol:${colName}`)
+          }, [
+            el("span", { class: "sieve-nav-icon", text: "📁" }),
+            el("span", { text: colName }),
+            prs.length > 0 ? el("span", { class: "sieve-nav-count", text: String(prs.length) }) : null
+          ]);
+          collListContainer.append(item);
+        });
+      }
     }
     renderCollections();
 
     const addColBtn = el("button", {
       type: "button",
       class: "btn-add-collection",
+      style: "font-size: 12px; color: var(--sieve-text-muted); padding: 6px 14px; text-align: left; cursor: pointer;",
       text: "+ New Collection",
       onclick: () => {
         const name = prompt("Enter new collection name:");
@@ -175,7 +159,8 @@ window.SieveCommandCenter = (function () {
       el("img", {
         class: "sieve-profile-avatar",
         src: `https://github.com/${repoContext.owner}.png?size=64`,
-        alt: repoContext.owner
+        alt: repoContext.owner,
+        onerror: (e) => { e.target.style.display = "none"; }
       }),
       el("div", { class: "sieve-profile-info" }, [
         el("div", { class: "sieve-profile-name", text: `@${repoContext.owner}` }),
@@ -193,16 +178,23 @@ window.SieveCommandCenter = (function () {
     const topBarLeft = el("div", { class: "sieve-topbar-left" }, [
       el("h1", { class: "sieve-topbar-title" }, [
         el("span", { text: "Pull Requests" }),
-        el("span", { style: "font-size: 16px; font-weight: 400; color: #a19f9a;", text: `· ${repoContext.owner} / ${repoContext.repo}` })
+        el("span", { style: "font-size: 15px; font-weight: 400; color: var(--sieve-text-muted);", text: `· ${repoContext.owner} / ${repoContext.repo}` })
       ]),
       el("div", { class: "sieve-topbar-meta", text: `Review Queue · ${rows.length} open contributions` })
     ]);
 
+    const segButtons = {
+      all: el("button", { type: "button", class: "sieve-segmented-btn active", text: "Overview", onclick: () => selectNav("all") }),
+      action_needed_you: el("button", { type: "button", class: "sieve-segmented-btn", text: "Attention", onclick: () => selectNav("action_needed_you") }),
+      waiting_on_contributor: el("button", { type: "button", class: "sieve-segmented-btn", text: "Waiting", onclick: () => selectNav("waiting_on_contributor") }),
+      blocked: el("button", { type: "button", class: "sieve-segmented-btn", text: "Blocked", onclick: () => selectNav("blocked") })
+    };
+
     const segmentedFilter = el("div", { class: "sieve-segmented-control" }, [
-      el("button", { type: "button", class: "sieve-segmented-btn active", text: "Overview", onclick: () => selectNav("all") }),
-      el("button", { type: "button", class: "sieve-segmented-btn", text: "Attention", onclick: () => selectNav("action_needed_you") }),
-      el("button", { type: "button", class: "sieve-segmented-btn", text: "Waiting", onclick: () => selectNav("waiting_on_contributor") }),
-      el("button", { type: "button", class: "sieve-segmented-btn", text: "Blocked", onclick: () => selectNav("blocked") })
+      segButtons.all,
+      segButtons.action_needed_you,
+      segButtons.waiting_on_contributor,
+      segButtons.blocked
     ]);
 
     const searchPill = el("div", { class: "sieve-search-pill" }, [
@@ -217,12 +209,14 @@ window.SieveCommandCenter = (function () {
       })
     ]);
 
+    const isConnected = engineStatus && engineStatus.connected;
+    const modelText = isConnected ? (engineStatus.model || "online") : "offline";
     const enginePill = el("div", {
-      class: `sieve-engine-pill ${engineStatus.connected ? "" : "offline"}`,
+      class: `sieve-engine-pill ${isConnected ? "" : "offline"}`,
       title: "Sieve Engine running on http://127.0.0.1:8787"
     }, [
       el("span", { class: "dot" }),
-      el("span", { text: engineStatus.connected ? `Engine: ${engineStatus.model}` : "Engine: Offline" })
+      el("span", { text: `Engine: ${modelText}` })
     ]);
 
     const topBarControls = el("div", { class: "sieve-topbar-controls" }, [
@@ -238,11 +232,12 @@ window.SieveCommandCenter = (function () {
 
     // KPI Strip
     const kpiStrip = el("div", { class: "sieve-kpi-strip" });
+    const kpiCards = {};
     const kpis = [
-      { id: "action_needed_you", title: "Action Needed", val: countAction, sub: "Waiting on maintainer", active: false },
-      { id: "waiting_on_contributor", title: "Waiting on Author", val: countWaiting, sub: "Changes requested", active: false },
-      { id: "collisions", title: "Overlapping Fixes", val: countCollisions, sub: "File or issue collisions", active: false },
-      { id: "merge_candidate", title: "Merge Candidates", val: countMerge, sub: "Passing checks & approved", active: false }
+      { id: "action_needed_you", title: "Action Needed", val: countAction, sub: "Waiting on maintainer" },
+      { id: "waiting_on_contributor", title: "Waiting on Author", val: countWaiting, sub: "Changes requested" },
+      { id: "collisions", title: "Overlapping Fixes", val: countCollisions, sub: "File or issue collisions" },
+      { id: "merge_candidate", title: "Merge Candidates", val: countMerge, sub: "Passing checks & approved" }
     ];
 
     kpis.forEach((k) => {
@@ -262,6 +257,7 @@ window.SieveCommandCenter = (function () {
         ]),
         el("div", { class: "sieve-kpi-sub", text: k.sub })
       ]);
+      kpiCards[k.id] = card;
       kpiStrip.append(card);
     });
 
@@ -277,7 +273,7 @@ window.SieveCommandCenter = (function () {
           ]),
           el("div", { class: "sieve-spotlight-body" }, [
             el("div", { class: "sieve-spotlight-pr-title", text: "No Pull Request Selected" }),
-            el("div", { class: "sieve-spotlight-pr-meta", text: "Select a pull request from the queue to inspect impact." })
+            el("div", { class: "sieve-spotlight-pr-meta", text: rows.length ? "Select a pull request from the queue to inspect impact." : "No open pull requests in this repository." })
           ])
         );
         return;
@@ -286,7 +282,6 @@ window.SieveCommandCenter = (function () {
       const impactSum = pr.impact_summary || {};
       const dependentsCount = impactSum.direct_dependents ?? 0;
       const testsCount = impactSum.related_test_files ?? 0;
-      const changedFiles = pr.changed_files ?? 0;
 
       const head = el("div", { class: "sieve-spotlight-head" }, [
         el("span", { class: "sieve-spotlight-badge", text: `PR #${pr.number} Spotlight` }),
@@ -319,10 +314,14 @@ window.SieveCommandCenter = (function () {
 
       const foot = el("div", { class: "sieve-spotlight-foot" }, [
         el("div", { class: "sieve-spotlight-author-wrap" }, [
-          pr.author_avatar ? el("img", { class: "sieve-spotlight-author-avatar", src: pr.author_avatar }) : null,
+          pr.author_avatar ? el("img", {
+            class: "sieve-spotlight-author-avatar",
+            src: pr.author_avatar,
+            onerror: (e) => { e.target.style.display = "none"; }
+          }) : null,
           el("span", { class: "sieve-spotlight-author-name", text: `@${pr.author}` })
         ]),
-        el("span", { style: "font-size: 11px; color: rgba(255,255,255,0.5); font-family: var(--sieve-font-mono);", text: pr.turn_status?.replace(/_/g, " ") || "ready" })
+        el("span", { style: "font-size: 11px; opacity: 0.6; font-family: var(--sieve-font-mono);", text: pr.turn_status?.replace(/_/g, " ") || "ready" })
       ]);
 
       spotlightCard.append(head, body, foot);
@@ -355,6 +354,18 @@ window.SieveCommandCenter = (function () {
 
     function renderCards() {
       cardsContainer.replaceChildren();
+
+      // If repository has zero PRs at all
+      if (!rows.length) {
+        cardsContainer.append(
+          el("div", { class: "sieve-empty-state", style: "padding: 60px 20px; text-align: center;" }, [
+            el("div", { class: "sieve-empty-icon", style: "font-size: 36px; margin-bottom: 12px;", text: "✨" }),
+            el("div", { class: "sieve-empty-title", style: "font-size: 18px; font-weight: 700;", text: "All Clear — No Open Pull Requests" }),
+            el("div", { class: "sieve-empty-sub", style: "font-size: 13px; color: var(--sieve-text-secondary); max-width: 440px; margin: 8px auto 0;", text: `There are no open contributions in ${repoContext.owner}/${repoContext.repo}. When a contributor submits a PR, Sieve will automatically map its AST blast radius and verify claims.` })
+          ])
+        );
+        return;
+      }
 
       // Filter by navigation
       let filtered = rows.filter((r) => {
@@ -393,10 +404,10 @@ window.SieveCommandCenter = (function () {
 
       if (!filtered.length) {
         cardsContainer.append(
-          el("div", { class: "sieve-empty-state" }, [
-            el("div", { class: "sieve-empty-icon", text: "📂" }),
-            el("div", { class: "sieve-empty-title", text: "No pull requests in this view" }),
-            el("div", { class: "sieve-empty-sub", text: "Select a different category from the sidebar or clear search filters." })
+          el("div", { class: "sieve-empty-state", style: "padding: 40px 20px; text-align: center;" }, [
+            el("div", { class: "sieve-empty-icon", style: "font-size: 28px; margin-bottom: 8px;", text: "📂" }),
+            el("div", { class: "sieve-empty-title", style: "font-size: 15px; font-weight: 600;", text: "No pull requests match this filter" }),
+            el("div", { class: "sieve-empty-sub", style: "font-size: 12.5px; color: var(--sieve-text-secondary); margin-top: 4px;", text: "Try selecting a different view from the sidebar or clear search filters." })
           ])
         );
         return;
@@ -418,49 +429,73 @@ window.SieveCommandCenter = (function () {
         });
 
         // Head: Title & Score
-        const head = el("div", { class: "sieve-pr-head" }, [
-          el("div", { class: "sieve-pr-title-row" }, [
+        const head = el("div", { class: "sieve-pr-card-head" }, [
+          el("div", { class: "sieve-pr-title-group" }, [
             el("span", { class: "sieve-pr-num", text: `#${pr.number}` }),
-            el("a", { class: "sieve-pr-title", href: pr.url, text: pr.title, target: "_blank", onclick: (e) => e.stopPropagation() })
+            el("h3", { class: "sieve-pr-title", text: pr.title })
           ]),
-          el("div", { class: `sieve-pr-score-badge ${pr.verdict || "ready"}` }, [
-            el("span", { text: `${pr.score ?? 0}` }),
-            el("span", { style: "font-weight: 400; opacity: 0.8;", text: (pr.verdict || "ready").replace("-", " ") })
-          ])
+          el("div", {
+            class: `sieve-pr-score-badge ${pr.verdict || "ready"}`,
+            text: `${pr.score ?? 0} ${pr.verdict ? pr.verdict.replace("-", " ") : "ready"}`
+          })
         ]);
 
-        // Cross-PR Collision Banner
+        // Collision Banner (if overlapping files or duplicate issues detected)
         let collisionBanner = null;
         if (pr.collisions && pr.collisions.length > 0) {
-          const colInfo = pr.collisions[0];
+          const conflicting = pr.collisions.map((c) => `#${c.with_pr}`).join(", ");
           collisionBanner = el("div", { class: "sieve-collision-banner" }, [
             el("span", { text: "⚠️" }),
-            el("span", { text: `File Collision: PR #${colInfo.with_pr} also modifies ${colInfo.file.split("/").pop()}` })
+            el("span", { text: `File Collision: Edits overlapping files with ${conflicting}` })
           ]);
         } else if (pr.duplicate_fixes && pr.duplicate_fixes.length > 0) {
-          const dupInfo = pr.duplicate_fixes[0];
+          const dupes = pr.duplicate_fixes.map((d) => `#${d.with_pr}`).join(", ");
           collisionBanner = el("div", { class: "sieve-collision-banner" }, [
             el("span", { text: "🔀" }),
-            el("span", { text: `Duplicate Fix: PR #${dupInfo.with_pr} also targets Issue #${dupInfo.issue}` })
+            el("span", { text: `Competing Fix: Resolves same issue as ${dupes}` })
           ]);
         }
 
-        // Meta & Chips
+        // Meta Row
         const metaRow = el("div", { class: "sieve-pr-meta-row" }, [
           el("div", { class: "sieve-pr-author-wrap" }, [
-            pr.author_avatar ? el("img", { class: "sieve-pr-author-avatar", src: pr.author_avatar }) : null,
+            pr.author_avatar ? el("img", {
+              class: "sieve-pr-author-avatar",
+              src: pr.author_avatar,
+              onerror: (e) => { e.target.style.display = "none"; }
+            }) : null,
             el("span", { text: `@${pr.author}` })
           ]),
-          el("span", { style: "color: var(--sieve-text-muted);", text: `+${pr.additions ?? 0} / -${pr.deletions ?? 0}` }),
+          el("span", { style: "font-family: var(--sieve-font-mono); font-size: 11px; opacity: 0.6;", text: `+${pr.additions ?? 0} / -${pr.deletions ?? 0}` }),
           el("div", { class: "sieve-chips-wrap" }, [
-            depCount > 0 ? el("span", { class: "sieve-chip blast", text: `+${depCount} dependents` }) : null,
-            testCount > 0 ? el("span", { class: "sieve-chip pass", text: `✓ ${testCount} tests` }) : el("span", { class: "sieve-chip warn", text: "No tests" }),
-            pr.is_bot ? el("span", { class: "sieve-chip", text: "🤖 Bot" }) : null,
-            el("span", { class: "sieve-chip", text: pr.turn_status?.replace(/_/g, " ") || "action needed" })
+            depCount > 0
+              ? el("span", { class: "sieve-chip", text: `+${depCount} dependents` })
+              : el("span", { class: "sieve-chip pass", text: "isolated change" }),
+            testCount > 0
+              ? el("span", { class: "sieve-chip pass", text: `✓ ${testCount} tests` })
+              : el("span", { class: "sieve-chip warn", text: "No tests" }),
+            el("span", { class: "sieve-chip", text: pr.turn_status?.replace(/_/g, " ") || "ready" })
           ])
         ]);
 
         // Action Buttons
+        const copyBtn = el("button", {
+          type: "button",
+          class: "btn-sieve secondary",
+          text: "📋 Copy Response",
+          onclick: (e) => {
+            e.stopPropagation();
+            const responseText = `Thanks @${pr.author} for the contribution! Checked the AST impact: ${depCount} dependents affected, ${testCount} tests linked.`;
+            navigator.clipboard.writeText(responseText).then(() => {
+              copyBtn.textContent = "Copied ✓";
+              setTimeout(() => { copyBtn.textContent = "📋 Copy Response"; }, 2000);
+            }).catch(() => {
+              copyBtn.textContent = "Copied ✓";
+              setTimeout(() => { copyBtn.textContent = "📋 Copy Response"; }, 2000);
+            });
+          }
+        });
+
         const actions = el("div", { class: "sieve-pr-actions" }, [
           el("button", {
             type: "button",
@@ -471,21 +506,12 @@ window.SieveCommandCenter = (function () {
               callbacks.onInspectPR?.(pr.number);
             }
           }),
-          el("button", {
-            type: "button",
-            class: "btn-sieve secondary",
-            text: "📋 Copy Response",
-            onclick: (e) => {
-              e.stopPropagation();
-              const responseText = `Thanks @${pr.author} for the contribution! Checked the AST impact: ${depCount} dependents affected.`;
-              navigator.clipboard.writeText(responseText);
-              alert("Copied suggested maintainer response to clipboard!");
-            }
-          }),
+          copyBtn,
           el("a", {
             class: "btn-sieve secondary",
             href: pr.url,
             target: "_blank",
+            rel: "noopener",
             text: "Open on GitHub ↗",
             onclick: (e) => e.stopPropagation()
           })
@@ -500,11 +526,28 @@ window.SieveCommandCenter = (function () {
 
     function selectNav(id) {
       activeNav = id;
+
+      // Update sidebar nav buttons
       Object.keys(navButtons).forEach((k) => {
         if (navButtons[k]) {
           navButtons[k].className = `sieve-nav-item ${k === id ? "active" : ""}`;
         }
       });
+
+      // Update segmented top buttons
+      Object.keys(segButtons).forEach((k) => {
+        if (segButtons[k]) {
+          segButtons[k].className = `sieve-segmented-btn ${k === id ? "active" : ""}`;
+        }
+      });
+
+      // Update KPI strip active card
+      Object.keys(kpiCards).forEach((k) => {
+        if (kpiCards[k]) {
+          kpiCards[k].className = `sieve-kpi-card ${k === id ? "active" : ""}`;
+        }
+      });
+
       renderCards();
     }
 
@@ -516,6 +559,7 @@ window.SieveCommandCenter = (function () {
       class: "sieve-floating-pill-bar",
       onclick: () => {
         selectNav("action_needed_you");
+        queueSection.scrollIntoView({ behavior: "smooth" });
       }
     }, [
       el("div", { class: "sieve-floating-pill-icon", text: "⚡" }),

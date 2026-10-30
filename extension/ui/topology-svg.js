@@ -88,7 +88,7 @@ window.SieveTopology = (function () {
       viewBox: `0 0 ${SVG_W} ${SVG_H}`,
       width: "100%",
       height: SVG_H,
-      style: "display: block; user-select: none; background: #faf9f6; border-radius: 10px; border: 1px solid rgba(29,29,31,0.1);"
+      style: "display: block; user-select: none; background: var(--sieve-surface-secondary, #faf9f6); border-radius: 12px; border: 1px solid var(--sieve-border-subtle, rgba(29,29,31,0.1));"
     });
 
     // Defs & Arrow markers
@@ -210,22 +210,22 @@ window.SieveTopology = (function () {
       }, [
         svgEl("rect", {
           x: pos.x, y: pos.y, width: pos.w, height: pos.h, rx: 7, ry: 7,
-          fill: "#ffffff", stroke: "rgba(29, 29, 31, 0.15)", "stroke-width": "1"
+          fill: "var(--sieve-surface-elevated, #ffffff)", stroke: "var(--sieve-border-subtle, rgba(29, 29, 31, 0.15))", "stroke-width": "1"
         }),
         svgEl("rect", {
           x: pos.x, y: pos.y, width: 4, height: pos.h, rx: 2, ry: 2, fill: accentColor
         }),
         svgEl("text", {
           x: pos.x + 12, y: pos.y + 18,
-          fill: "#1d1d1f", "font-size": "12px", "font-family": "ui-monospace, monospace", "font-weight": "600"
+          fill: "var(--sieve-text-primary, #1d1d1f)", "font-size": "12px", "font-family": "ui-monospace, monospace", "font-weight": "600"
         }, [fileName]),
         svgEl("text", {
           x: pos.x + 12, y: pos.y + 32,
-          fill: "#6e6d68", "font-size": "10px", "font-family": "ui-monospace, monospace"
+          fill: "var(--sieve-text-muted, #6e6d68)", "font-size": "10px", "font-family": "ui-monospace, monospace"
         }, [dirName || "(root)"]),
         svgEl("rect", {
           x: pos.x + pos.w - 44, y: pos.y + 12, width: 36, height: 18, rx: 4, ry: 4,
-          fill: "rgba(29, 29, 31, 0.06)"
+          fill: "var(--sieve-surface-secondary, rgba(29, 29, 31, 0.06))"
         }),
         svgEl("text", {
           x: pos.x + pos.w - 26, y: pos.y + 24, "text-anchor": "middle",

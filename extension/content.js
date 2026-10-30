@@ -4,7 +4,6 @@
 (function () {
   "use strict";
 
-  // A reloaded extension (or a second injection) must not double-mount observers and listeners.
   if (window.__sieveContentLoaded) return;
   window.__sieveContentLoaded = true;
 
@@ -13,11 +12,122 @@
   let currentHost = null;
   let shadowRoot = null;
   let activeViewMode = "sieve"; // "sieve" or "native"
+  let userSwitchedManually = false;
+  let lastLoadedLoc = null;
 
-  // Load user preference
+  function detectGitHubTheme() {
+    const html = document.documentElement;
+    const colorMode = html.getAttribute("data-color-mode");
+    if (colorMode === "dark") return "dark";
+    if (colorMode === "light") return "light";
+    if (colorMode === "auto") {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    const darkTheme = html.getAttribute("data-dark-theme");
+    if (darkTheme && darkTheme.includes("dark")) return "dark";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  function updateHostTheme() {
+    const host = document.getElementById("sieve-workspace-host");
+    if (host) {
+      const theme = detectGitHubTheme();
+      host.setAttribute("data-theme", theme);
+    }
+  }
+
+  // Observe theme changes on GitHub root
+  const themeObserver = new MutationObserver(() => updateHostTheme());
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-color-mode", "data-dark-theme", "class"]
+  });
+
+  // Inject switcher styles directly into the main GitHub page
+  function injectNativeSwitcherStyle() {
+    if (document.getElementById("sieve-native-switcher-style")) return;
+    const style = document.createElement("style");
+    style.id = "sieve-native-switcher-style";
+    style.textContent = `
+      .sieve-native-switcher {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px;
+        border-radius: 999px;
+        margin-left: 14px;
+        background: var(--color-canvas-subtle, rgba(110, 118, 129, 0.12));
+        border: 1px solid var(--color-border-default, rgba(110, 118, 129, 0.22));
+        vertical-align: middle;
+        gap: 3px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      }
+      .sieve-native-switcher button {
+        border: 0;
+        background: transparent;
+        color: var(--color-fg-muted, #7d8590);
+        padding: 4px 13px;
+        border-radius: 999px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.3;
+        transition: all 120ms ease;
+      }
+      .sieve-native-switcher button:hover {
+        color: var(--color-fg-default, #e6edf3);
+      }
+      .sieve-native-switcher button[aria-selected="true"] {
+        background: var(--color-canvas-default, #161b22);
+        color: var(--color-fg-default, #f0f6fc);
+        font-weight: 600;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+        border: 1px solid var(--color-border-muted, rgba(110, 118, 129, 0.3));
+      }
+      html[data-color-mode="light"] .sieve-native-switcher button[aria-selected="true"] {
+        background: #FFFFFF;
+        color: #1f2328;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+        border-color: #d0d7de;
+      }
+      .sieve-pr-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        margin-left: 10px;
+        border-radius: 999px;
+        background: #21262d;
+        color: #f0f6fc;
+        border: 1px solid rgba(240, 246, 252, 0.18);
+        font-size: 11.5px;
+        font-weight: 600;
+        cursor: pointer;
+        vertical-align: middle;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+        transition: all 120ms ease;
+      }
+      .sieve-pr-pill:hover {
+        background: #30363d;
+        transform: translateY(-1px);
+      }
+      html[data-color-mode="light"] .sieve-pr-pill {
+        background: #171717;
+        color: #FFFFFF;
+        border: 1px solid #171717;
+      }
+    `;
+    (document.head || document.documentElement).append(style);
+  }
+
+  // Load user preferences
   if (chrome.storage && chrome.storage.local) {
-    chrome.storage.local.get("activeViewMode", (res) => {
-      if (res.activeViewMode) activeViewMode = res.activeViewMode;
+    chrome.storage.local.get(["activeViewMode", "autoOpenSieve"], (res) => {
+      if (res.autoOpenSieve === false) {
+        activeViewMode = "native";
+      } else if (res.activeViewMode) {
+        activeViewMode = res.activeViewMode;
+      }
     });
   }
 
@@ -28,12 +138,13 @@
       host.id = "sieve-workspace-host";
       shadowRoot = host.attachShadow({ mode: "open" });
 
-      // Link isolated stylesheet
       const link = document.createElement("link");
       link.rel = "stylesheet";
       link.href = chrome.runtime.getURL("ui/workspace.css");
       shadowRoot.append(link);
     }
+
+    updateHostTheme();
 
     if (!host.isConnected) {
       if (nativeList && nativeList.parentElement) {
@@ -48,55 +159,66 @@
 
   function injectNativeSwitcher(subnav, onToggle) {
     try {
-      if (subnav.querySelector(".sieve-native-switcher")) return;
+      injectNativeSwitcherStyle();
 
-      const switcher = document.createElement("div");
-      switcher.className = "sieve-native-switcher";
-      switcher.setAttribute("role", "tablist");
-      switcher.setAttribute("aria-label", "Pull request view mode");
+      let switcher = subnav.querySelector(".sieve-native-switcher");
+      if (!switcher) {
+        switcher = document.createElement("div");
+        switcher.className = "sieve-native-switcher";
+        switcher.setAttribute("role", "tablist");
+        switcher.setAttribute("aria-label", "Pull request view mode");
 
-      const nativeBtn = document.createElement("button");
-      nativeBtn.type = "button";
-      nativeBtn.textContent = "Native GitHub";
-      nativeBtn.setAttribute("aria-selected", String(activeViewMode === "native"));
+        const nativeBtn = document.createElement("button");
+        nativeBtn.type = "button";
+        nativeBtn.className = "sieve-switch-native";
+        nativeBtn.textContent = "Native GitHub";
 
-      const sieveBtn = document.createElement("button");
-      sieveBtn.type = "button";
-      sieveBtn.textContent = "Sieve Workspace";
-      sieveBtn.setAttribute("aria-selected", String(activeViewMode === "sieve"));
+        const sieveBtn = document.createElement("button");
+        sieveBtn.type = "button";
+        sieveBtn.className = "sieve-switch-sieve";
+        sieveBtn.textContent = "Sieve Workspace";
 
-      nativeBtn.onclick = () => {
-        activeViewMode = "native";
-        nativeBtn.setAttribute("aria-selected", "true");
-        sieveBtn.setAttribute("aria-selected", "false");
-        chrome.storage.local.set({ activeViewMode: "native" });
-        onToggle("native");
-      };
+        nativeBtn.onclick = () => {
+          activeViewMode = "native";
+          userSwitchedManually = true;
+          nativeBtn.setAttribute("aria-selected", "true");
+          sieveBtn.setAttribute("aria-selected", "false");
+          chrome.storage.local.set({ activeViewMode: "native" });
+          onToggle("native");
+        };
 
-      sieveBtn.onclick = () => {
-        activeViewMode = "sieve";
-        sieveBtn.setAttribute("aria-selected", "true");
-        nativeBtn.setAttribute("aria-selected", "false");
-        chrome.storage.local.set({ activeViewMode: "sieve" });
-        onToggle("sieve", { intentional: true });
-      };
+        sieveBtn.onclick = () => {
+          activeViewMode = "sieve";
+          userSwitchedManually = true;
+          sieveBtn.setAttribute("aria-selected", "true");
+          nativeBtn.setAttribute("aria-selected", "false");
+          chrome.storage.local.set({ activeViewMode: "sieve" });
+          onToggle("sieve", { intentional: true });
+        };
 
-      switcher.append(nativeBtn, sieveBtn);
-      subnav.append(switcher);
-      console.log("[Sieve Workspace] switcher appended to subnav:", subnav.className);
+        switcher.append(nativeBtn, sieveBtn);
+        subnav.append(switcher);
+      }
+
+      // Update button active state
+      const nBtn = switcher.querySelector(".sieve-switch-native");
+      const sBtn = switcher.querySelector(".sieve-switch-sieve");
+      if (nBtn) nBtn.setAttribute("aria-selected", String(activeViewMode === "native"));
+      if (sBtn) sBtn.setAttribute("aria-selected", String(activeViewMode === "sieve"));
+
     } catch (err) {
       console.error("[Sieve Workspace] injectNativeSwitcher error:", err);
     }
   }
 
   function handlePullsPage(loc) {
+    lastLoadedLoc = loc;
     let attempts = 0;
     const maxAttempts = 20;
 
     function tryMount() {
       const subnav = window.SieveAdapter.findSubnavContainer();
       const nativeList = window.SieveAdapter.findNativePullsList();
-      console.log(`[Sieve Workspace] tryMount attempt ${attempts}: subnav=${!!subnav}, nativeList=${!!nativeList}`);
 
       if (subnav && nativeList) {
         initPullsView(loc, subnav, nativeList);
@@ -114,10 +236,8 @@
 
   function initPullsView(loc, subnav, nativeList) {
     try {
-      console.log("[Sieve Workspace] initPullsView starting...");
       const parentContainer = nativeList.parentElement || document.querySelector("main") || document.body;
       const shadow = getOrCreateShadowRoot(parentContainer, nativeList);
-      console.log("[Sieve Workspace] Shadow root created/attached");
 
       function applyView(mode, opts = {}) {
         if (mode === "sieve") {
@@ -131,127 +251,83 @@
       }
 
       injectNativeSwitcher(subnav, (mode, opts) => applyView(mode, opts));
-      console.log("[Sieve Workspace] injectNativeSwitcher called");
       applyView(activeViewMode);
-      console.log("[Sieve Workspace] applyView completed");
     } catch (e) {
       console.error("[Sieve Workspace] initPullsView error:", e);
     }
   }
 
-  // Replace the workspace content while keeping an open PR overlay alive (SPA navigation re-renders).
-  function replaceWorkspace(shadow, ...nodes) {
-    const keep = [shadow.querySelector(".sieve-act-overlay"), window.SievePRIntelligence.overlayNode(shadow)].filter(Boolean);
+  async function loadCommandCenter(loc, shadow, opts = {}) {
     const styleLink = document.createElement("link");
     styleLink.rel = "stylesheet";
     styleLink.href = chrome.runtime.getURL("ui/workspace.css");
-    shadow.replaceChildren(styleLink, ...nodes, ...keep);
-  }
 
-  async function loadCommandCenter(loc, shadow, opts = {}) {
-    // Show loading skeleton inside shadow DOM (text via textContent: repo names come from the URL)
+    // Show loading skeleton inside shadow DOM
     const skeleton = document.createElement("div");
     skeleton.className = "sieve-workspace";
     skeleton.innerHTML = `
-      <div class="repo-header">
+      <div class="repo-header" style="padding: 24px;">
         <div class="repo-brand">
-          <div class="repo-avatar"></div>
           <div class="repo-title-wrap">
-            <h1></h1>
-            <p class="repo-meta">Loading Sieve repository intelligence…</p>
+            <h1 style="font-size:22px;">${loc.owner} / ${loc.repo}</h1>
+            <p class="repo-meta" style="font-size:13px; color: var(--sieve-text-secondary, #777);">Scanning pull requests & AST blast radius…</p>
           </div>
         </div>
       </div>
-      <div class="empty-state">
-        <div class="empty-title">Scanning pull requests and mapping the import graph…</div>
-      </div>
     `;
-    skeleton.querySelector("h1").textContent = `${loc.owner} / ${loc.repo}`;
-    replaceWorkspace(shadow, skeleton);
+    shadow.replaceChildren(styleLink, skeleton);
 
-    // The full activation sequence runs on intentional activation, first activation in this tab, or after a
-    // failed init, and never on top of an open PR investigation. Otherwise loading is silent.
-    const showActivation = window.SieveActivation.shouldShow(opts) && !window.SievePRIntelligence.isOpen(shadow);
-    const act = showActivation
-      ? window.SieveActivation.start(shadow, { onRetry: () => { chrome.runtime.sendMessage({ type: "CLEAR_CACHE" }); loadCommandCenter(loc, shadow, { intentional: true }); } })
-      : window.SieveActivation.silent;
-    const code = (t) => { const c = document.createElement("code"); c.textContent = t; return c; };
-
-    // 1. GitHub: we only get here once the adapter found the pull request list on this page
-    act.stage("github", "done", "Attached to this pull requests page");
-
-    // 2. Repository context, parsed from the URL
-    act.stage("repo", "active");
-    if (!loc.owner || !loc.repo) {
-      act.stage("repo", "error", "Not a repository page");
-      act.fail("Couldn't detect a repository", "Sieve works on a repository's pull requests page.");
-      return;
-    }
-    act.stage("repo", "done", loc.ref);
-
-    // 3. Engine health
-    act.stage("engine", "active");
+    // Live health query
     let health = { connected: false, model: "offline" };
     try {
-      const hRes = await chrome.runtime.sendMessage({ type: "CHECK_HEALTH" });
-      if (hRes && hRes.ok) health = { connected: true, model: hRes.data.model };
-      else throw new Error(hRes?.error || "No response from the engine");
-      act.stage("engine", "done", `${hRes.data.model}${hRes.data.ollama ? " · local model ready" : " · model offline, deterministic checks only"}`);
-    } catch (err) {
-      act.stage("engine", "error", "Not reachable");
-      act.fail("Sieve Engine isn't reachable", err.message, ["Start it with ", code("python3 -m sieve --serve"), " and press Retry."]);
-      renderErrorState(shadow, loc, err.message);
-      return;
+      const hRes = await chrome.runtime.sendMessage({ type: "CHECK_HEALTH", forceFresh: Boolean(opts.intentional) });
+      if (hRes && hRes.ok) {
+        health = {
+          connected: true,
+          model: hRes.data.model || "none",
+          latency_ms: hRes.data.latency_ms,
+          ollama: hRes.data.ollama,
+          github_auth: hRes.data.github_auth
+        };
+      }
+    } catch {
+      health = { connected: false, model: "offline" };
     }
 
-    // 4. Repository data (the open pull request queue)
-    act.stage("data", "active");
-    let queue;
     try {
-      const qRes = await chrome.runtime.sendMessage({ type: "GET_QUEUE", repo: loc.ref });
-      if (!qRes || !qRes.ok) throw new Error(qRes?.error || "Could not retrieve repository queue.");
-      queue = qRes.data;
-      act.stage("data", "done", `${(queue.rows || []).length} open pull request${(queue.rows || []).length === 1 ? "" : "s"}`);
-    } catch (err) {
-      act.stage("data", "error", "Unavailable");
-      act.fail("Repository information is unavailable", err.message, ["GitHub may be rate-limiting the engine. Setting ", code("GITHUB_TOKEN"), " raises the limit."]);
-      renderErrorState(shadow, loc, err.message);
-      return;
-    }
-
-    // 5. Workspace
-    act.stage("workspace", "active");
-    try {
-      // render() replaces the whole shadow content: carry the floating layers over to the new tree
-      const floating = [shadow.querySelector(".sieve-act-overlay"), window.SievePRIntelligence.overlayNode(shadow)].filter(Boolean);
-      window.SieveCommandCenter.render(shadow, loc, queue, health, {
-        onInspectPR: (prNumber) => openPRDrawer(loc, prNumber, shadow)
+      const qRes = await chrome.runtime.sendMessage({
+        type: "GET_QUEUE",
+        repo: loc.ref,
+        forceFresh: Boolean(opts.intentional)
       });
-      shadow.append(...floating);
-      act.stage("workspace", "done", "Command Center ready");
-      act.complete();
+      if (qRes && qRes.ok) {
+        window.SieveCommandCenter.render(shadow, loc, qRes.data, health, {
+          onInspectPR: (prNumber) => openPRDrawer(loc, prNumber, shadow)
+        });
+      } else {
+        renderErrorState(shadow, loc, qRes?.error || "Could not retrieve repository queue.");
+      }
     } catch (err) {
-      act.stage("workspace", "error", "Render failed");
-      act.fail("Couldn't prepare the workspace", err.message);
       renderErrorState(shadow, loc, err.message);
     }
   }
 
-  function analyzePR(prRef) {
-    return async () => {
-      const res = await chrome.runtime.sendMessage({ type: "GET_ANALYZE", pr: prRef, useModel: false });
-      if (!res || !res.ok) throw new Error(res?.error || "Could not analyze this pull request");
-      return res.data;
-    };
-  }
-
-  function openPRDrawer(loc, prNumber, shadow) {
+  async function openPRDrawer(loc, prNumber, shadow) {
     const prRef = `${loc.owner}/${loc.repo}#${prNumber}`;
-    const trigger = shadow.activeElement; // the row/button the maintainer clicked
-    window.SievePRIntelligence.open(shadow, { prRef, trigger, load: analyzePR(prRef) });
+    try {
+      const res = await chrome.runtime.sendMessage({ type: "GET_ANALYZE", pr: prRef, useModel: false });
+      if (res && res.ok) {
+        window.SievePRIntelligence.openDrawer(shadow, res.data);
+      } else {
+        alert(`Sieve error: ${res?.error || "Could not analyze PR"}`);
+      }
+    } catch (err) {
+      alert(`Connection error: ${err.message}`);
+    }
   }
 
   function handlePrDetailPage(loc) {
+    injectNativeSwitcherStyle();
     let attempts = 0;
     const maxAttempts = 30;
 
@@ -275,57 +351,80 @@
     const pill = document.createElement("button");
     pill.type = "button";
     pill.className = "sieve-pr-pill";
-    pill.style.cssText = `
-      display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; margin-left: 10px;
-      border-radius: 999px; background: #171717; color: #FFFFFF; font-size: 11.5px; font-weight: 600;
-      border: 1px solid #171717; cursor: pointer; vertical-align: middle;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.15); transition: transform 120ms ease;
-    `;
     pill.innerHTML = `<span>⚡</span> Sieve Intelligence`;
 
-    pill.onmouseover = () => { pill.style.transform = "scale(1.04)"; };
-    pill.onmouseout = () => { pill.style.transform = "scale(1)"; };
-
-    pill.onclick = () => {
+    pill.onclick = async () => {
+      pill.textContent = "Analyzing…";
       const prRef = `${loc.owner}/${loc.repo}#${loc.number}`;
-      const shadow = getOrCreateShadowRoot(document.body);
-      currentHost.style.display = "block";
-      window.SievePRIntelligence.open(shadow, { prRef, trigger: pill, load: analyzePR(prRef) });
+      const parent = document.body;
+      const shadow = getOrCreateShadowRoot(parent);
+
+      try {
+        const res = await chrome.runtime.sendMessage({ type: "GET_ANALYZE", pr: prRef, useModel: false });
+        pill.innerHTML = `<span>⚡</span> Sieve Intelligence`;
+        if (res && res.ok) {
+          window.SievePRIntelligence.openDrawer(shadow, res.data);
+        } else {
+          alert(`Sieve error: ${res?.error || "Failed to analyze PR"}`);
+        }
+      } catch (err) {
+        pill.innerHTML = `<span>⚡</span> Sieve Intelligence`;
+        alert(`Connection error: ${err.message}`);
+      }
     };
 
     prHeader.append(pill);
   }
 
   function renderErrorState(shadow, loc, errMsg) {
+    const styleLink = document.createElement("link");
+    styleLink.rel = "stylesheet";
+    styleLink.href = chrome.runtime.getURL("ui/workspace.css");
+
     const errBox = document.createElement("div");
     errBox.className = "sieve-workspace";
     errBox.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-title">Cannot connect to Sieve Intelligence Engine</div>
-        <div class="empty-sub"></div>
-        <p style="font-size: 12px; color: #6e6d68; margin-top: 8px;">Run <code>python3 -m sieve --serve</code> on your machine to start the local engine.</p>
+      <div class="empty-state" style="padding: 40px; text-align: center;">
+        <div class="empty-icon" style="font-size: 32px;">⚠️</div>
+        <div class="empty-title" style="font-size: 18px; font-weight: 700; margin-top: 10px;">Cannot connect to Sieve Intelligence Engine</div>
+        <div class="empty-sub" style="font-size: 13px; color: var(--sieve-text-secondary, #777); margin-top: 6px;">${errMsg}</div>
+        <p style="font-size: 12px; color: var(--sieve-text-muted, #999); margin-top: 12px;">Run <code>python3 -m sieve --serve</code> on your machine to start the local engine.</p>
       </div>
     `;
-    errBox.querySelector(".empty-sub").textContent = errMsg;
-    replaceWorkspace(shadow, errBox);
+    shadow.replaceChildren(styleLink, errBox);
   }
 
-  // Register page navigation listener
-  // GitHub fires turbo:load, turbo:render and pushState for one navigation: handle each URL once per burst.
-  let lastHandled = { href: "", at: 0 };
-  const NAV_DEDUPE_MS = 1000;
+  // Listen for broadcast messages from popup or background worker
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === "SIEVE_HEALTH_UPDATED") {
+      const host = document.getElementById("sieve-workspace-host");
+      if (host && host.shadowRoot) {
+        const enginePill = host.shadowRoot.querySelector(".sieve-engine-pill");
+        if (enginePill) {
+          if (msg.ok) {
+            enginePill.className = "sieve-engine-pill";
+            enginePill.innerHTML = `<span class="dot"></span> Engine: ${msg.data.model || "online"}`;
+          } else {
+            enginePill.className = "sieve-engine-pill offline";
+            enginePill.innerHTML = `<span class="dot"></span> Engine: offline`;
+          }
+        }
+      }
+    } else if (msg.type === "SIEVE_CACHE_CLEARED") {
+      if (currentHost && shadowRoot && lastLoadedLoc && activeViewMode === "sieve") {
+        loadCommandCenter(lastLoadedLoc, shadowRoot, { intentional: true });
+      }
+    }
+  });
+
+  // Navigation lifecycle
   const handleLocationChange = (loc) => {
     if (!loc) return;
-    const now = Date.now();
-    if (location.href === lastHandled.href && now - lastHandled.at < NAV_DEDUPE_MS) return;
-    lastHandled = { href: location.href, at: now };
     if (loc.type === "PULLS") {
       handlePullsPage(loc);
     } else if (loc.type === "PR_DETAIL") {
       handlePrDetailPage(loc);
     } else {
-      // Unmount Sieve host on other pages
       if (currentHost) {
         currentHost.style.display = "none";
       }
@@ -334,6 +433,6 @@
 
   window.SieveAdapter.onPageChange(handleLocationChange);
 
-  // Initial trigger
+  // Initial mount trigger
   handleLocationChange(window.SieveAdapter.parseGitHubLocation());
 })();
