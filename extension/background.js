@@ -14,15 +14,20 @@ async function getEngineUrl() {
   }
 }
 
-async function fetchFromEngine(endpoint) {
+async function fetchFromEngine(endpoint, forceFresh = false) {
   const engineUrl = await getEngineUrl();
   const fullUrl = `${engineUrl}${endpoint}`;
-  
-  const cached = cache.get(fullUrl);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return cached.data;
+
+  // Never cache health check or when forceFresh is requested
+  const isHealth = endpoint.startsWith("/api/health");
+  if (!isHealth && !forceFresh) {
+    const cached = cache.get(fullUrl);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return cached.data;
+    }
   }
 
+  const startTime = Date.now();
   try {
     const res = await fetch(fullUrl, {
       headers: { "X-Requested-With": "Sieve-Workspace-Extension" }
@@ -31,23 +36,52 @@ async function fetchFromEngine(endpoint) {
     if (!res.ok) {
       throw new Error(data.error || `Engine error: ${res.status}`);
     }
-    cache.set(fullUrl, { timestamp: Date.now(), data });
+    const elapsed = Date.now() - startTime;
+    if (isHealth) {
+      data.latency_ms = elapsed;
+    } else {
+      cache.set(fullUrl, { timestamp: Date.now(), data });
+    }
     return data;
   } catch (err) {
     throw new Error(err.message || "Cannot connect to Sieve Engine. Is `python3 -m sieve --serve` running?");
   }
 }
 
+function broadcastToTabs(message) {
+  if (chrome.tabs && chrome.tabs.query) {
+    chrome.tabs.query({ url: "https://github.com/*" }, (tabs) => {
+      (tabs || []).forEach((t) => {
+        try {
+          chrome.tabs.sendMessage(t.id, message, () => {
+            if (chrome.runtime.lastError) { /* ignore inactive tabs */ }
+          });
+        } catch { /* ignore */ }
+      });
+    });
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "CHECK_HEALTH") {
-    fetchFromEngine("/api/health")
-      .then((data) => sendResponse({ ok: true, data }))
-      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    fetchFromEngine("/api/health", Boolean(msg.forceFresh))
+      .then((data) => {
+        chrome.action.setBadgeBackgroundColor({ color: "#2e7d32" });
+        chrome.action.setBadgeText({ text: "OK" });
+        broadcastToTabs({ type: "SIEVE_HEALTH_UPDATED", data, ok: true });
+        sendResponse({ ok: true, data });
+      })
+      .catch((err) => {
+        chrome.action.setBadgeBackgroundColor({ color: "#c62828" });
+        chrome.action.setBadgeText({ text: "ERR" });
+        broadcastToTabs({ type: "SIEVE_HEALTH_UPDATED", error: err.message, ok: false });
+        sendResponse({ ok: false, error: err.message });
+      });
     return true; // Keep message channel open for async response
   }
 
   if (msg.type === "GET_QUEUE") {
-    fetchFromEngine(`/api/queue?repo=${encodeURIComponent(msg.repo)}`)
+    fetchFromEngine(`/api/queue?repo=${encodeURIComponent(msg.repo)}`, Boolean(msg.forceFresh))
       .then((data) => sendResponse({ ok: true, data }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
@@ -55,7 +89,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "GET_ANALYZE") {
     const modelParam = msg.useModel ? "1" : "0";
-    fetchFromEngine(`/api/analyze?pr=${encodeURIComponent(msg.pr)}&model=${modelParam}`)
+    fetchFromEngine(`/api/analyze?pr=${encodeURIComponent(msg.pr)}&model=${modelParam}`, Boolean(msg.forceFresh))
       .then((data) => sendResponse({ ok: true, data }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
@@ -63,7 +97,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "GET_ATLAS") {
     const endpoint = msg.pr ? `/api/atlas?pr=${encodeURIComponent(msg.pr)}` : `/api/atlas?repo=${encodeURIComponent(msg.repo)}`;
-    fetchFromEngine(endpoint)
+    fetchFromEngine(endpoint, Boolean(msg.forceFresh))
       .then((data) => sendResponse({ ok: true, data }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
@@ -71,14 +105,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "CLEAR_CACHE") {
     cache.clear();
-    sendResponse({ ok: true });
+    broadcastToTabs({ type: "SIEVE_CACHE_CLEARED" });
+    sendResponse({ ok: true, timestamp: Date.now() });
     return true;
   }
 });
 
-// Update badge when extension installs or starts
+// Update badge on install
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.action.setBadgeBackgroundColor({ color: "#2f5bea" });
-  chrome.action.setBadgeText({ text: "" });
+  fetchFromEngine("/api/health", true)
+    .then(() => {
+      chrome.action.setBadgeBackgroundColor({ color: "#2e7d32" });
+      chrome.action.setBadgeText({ text: "OK" });
+    })
+    .catch(() => {
+      chrome.action.setBadgeBackgroundColor({ color: "#777571" });
+      chrome.action.setBadgeText({ text: "OFF" });
+    });
 });
-
