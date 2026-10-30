@@ -146,7 +146,7 @@ function atlasPanel({ caption, withImpact }) {
     stage,
   ]);
 
-  const ctl = window.Atlas.create(canvas, { onSelect: (n) => renderInspector(inspector, n), focusInset: () => (inspector.hidden || stage.clientWidth < 720 ? 0 : inspector.offsetWidth + 12) });
+  const ctl = window.Atlas.create(canvas, { onSelect: (n) => renderInspector(inspector, n), leftInset: () => (stage.clientWidth < 720 ? 0 : stage.querySelector(".atlas-controls").offsetWidth + 12), focusInset: () => (inspector.hidden || stage.clientWidth < 720 ? 0 : inspector.offsetWidth + 12) });
   modeBtns?.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;

@@ -109,14 +109,16 @@
       const saved = { ...state.cam };
       Object.assign(state.cam, HOME, { zoom: 1, tx: (b.minX + b.maxX) / 2, ty: (b.minY + b.maxY) / 2 });
       let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-      for (const n of list) {
-        for (const z of [0, n.z]) {
-          const p = project(n.x, n.y, z);
-          x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
-        }
+      const grow = (p) => { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); };
+      for (const n of list) { grow(project(n.x, n.y, 0)); grow(project(n.x, n.y, n.z)); }
+      if (list === state.nodes) { // whole repo: include the directory islands, not just the files
+        for (const c of state.clusters) for (let i = 0; i < 8; i++) grow(project(c.x + Math.cos(i * TAU / 8) * c.r, c.y + Math.sin(i * TAU / 8) * c.r, 0));
       }
-      const zoom = Math.max(0.2, Math.min(3, Math.min((state.w * 0.62) / Math.max(x1 - x0, 60), (state.h * 0.62) / Math.max(y1 - y0, 60))));
-      const goal = { ...state.cam, zoom, ox: (x0 + x1) / 2 - state.w / 2, oy: (y0 + y1) / 2 - state.h * 0.52 };
+      // fit inside the area the floating controls leave free (left inset), with a margin
+      const inset = opts.leftInset?.() || 0;
+      const availW = state.w - inset, availH = state.h;
+      const zoom = Math.max(0.2, Math.min(3, Math.min((availW * 0.86) / Math.max(x1 - x0, 60), (availH * 0.84) / Math.max(y1 - y0, 60))));
+      const goal = { ...state.cam, zoom, ox: (x0 + x1) / 2 - state.w / 2 - inset / 2 / zoom, oy: (y0 + y1) / 2 - state.h * 0.52 };
       Object.assign(state.cam, saved);
       if (instant) { Object.assign(state.cam, goal); state.goal = null; } else state.goal = goal;
       invalidate();
@@ -129,7 +131,7 @@
       const x1 = dx * cy - dy * sy, y1 = dx * sy + dy * cy;
       const cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
       const toward = y1 * sp + z * cp; // distance towards the viewer, used for perspective and draw order
-      const D = 900 / c.zoom;
+      const D = 900; // fixed camera distance: perspective is independent of zoom, so fit() measurements hold
       const s = D / Math.max(80, D - toward);
       return { x: state.w / 2 + (x1 * s - c.ox) * c.zoom, y: state.h * 0.52 + ((y1 * cp - z * sp) * s - c.oy) * c.zoom, s, depth: toward };
     }
