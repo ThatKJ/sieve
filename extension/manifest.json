@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "Sieve Workspace — GitHub for Maintainers",
+  "version": "1.0.0",
+  "description": "Maintainer-first contribution management and repository intelligence platform directly inside GitHub.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Sieve Workspace",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://github.com/*",
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://github.com/*"
+      ],
+      "js": [
+        "github-adapter.js",
+        "ui/topology-svg.js",
+        "ui/command-center.js",
+        "ui/pr-intelligence.js",
+        "content.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "ui/workspace.css",
+        "icons/*"
+      ],
+      "matches": [
+        "https://github.com/*"
+      ]
+    }
+  ]
+}
+
