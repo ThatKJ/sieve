@@ -6,49 +6,92 @@
   const $ = (id) => document.getElementById(id);
 
   function checkHealth() {
-    $("health-badge").className = "badge";
-    $("health-badge").textContent = "checking…";
-    $("offline-help").hidden = true;
+    const badge = $("health-badge");
+    const refreshBtn = $("refresh-btn");
+    const offlineHelp = $("offline-help");
+    const latencyRow = $("latency-row");
+    const pingLatency = $("ping-latency");
 
-    chrome.runtime.sendMessage({ type: "CHECK_HEALTH" }, (res) => {
+    badge.className = "badge";
+    badge.textContent = "testing…";
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = "Testing…";
+    }
+    if (offlineHelp) offlineHelp.hidden = true;
+
+    const t0 = Date.now();
+    chrome.runtime.sendMessage({ type: "CHECK_HEALTH", forceFresh: true }, (res) => {
+      const elapsed = Date.now() - t0;
+      if (refreshBtn) {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = "Test Connection";
+      }
+
       if (chrome.runtime.lastError || !res || !res.ok) {
-        $("health-badge").className = "badge off";
-        $("health-badge").textContent = "offline";
-        $("model-name").textContent = "–";
+        badge.className = "badge off";
+        badge.textContent = "offline";
+        $("model-name").textContent = "none";
         $("ollama-status").textContent = "offline";
         $("github-auth").textContent = "–";
-        $("offline-help").hidden = false;
+        if (latencyRow) latencyRow.hidden = true;
+        if (offlineHelp) {
+          offlineHelp.hidden = false;
+          const errDetail = offlineHelp.querySelector(".err-detail");
+          if (errDetail) {
+            errDetail.textContent = res?.error || "Connection refused (127.0.0.1:8787)";
+          }
+        }
         return;
       }
 
-      const d = res.data;
-      $("health-badge").className = "badge ok";
-      $("health-badge").textContent = "connected";
+      const d = res.data || {};
+      const latency = d.latency_ms ?? elapsed;
+      badge.className = "badge ok";
+      badge.textContent = `online (${latency}ms)`;
+
+      if (latencyRow && pingLatency) {
+        latencyRow.hidden = false;
+        pingLatency.textContent = `${latency} ms`;
+      }
+
       $("model-name").textContent = d.model || "none";
-      $("ollama-status").textContent = d.ollama ? (d.model_installed ? "ready" : "model missing") : "not running";
-      $("github-auth").textContent = d.github_auth ? "token active" : "unauthenticated";
+      $("ollama-status").textContent = d.ollama
+        ? (d.model_installed ? "ready (running)" : "model missing")
+        : "not detected";
+
+      $("github-auth").textContent = d.github_auth
+        ? "token active (5000 req/h)"
+        : "unauthenticated (60 req/h)";
     });
   }
 
-  // Load auto-open setting
-  chrome.storage.local.get("activeViewMode", (res) => {
-    $("auto-open-toggle").checked = res.activeViewMode !== "native";
+  // Auto-open preference
+  chrome.storage.local.get("autoOpenSieve", (res) => {
+    // Default to true if unset
+    $("auto-open-toggle").checked = res.autoOpenSieve !== false;
   });
 
   $("auto-open-toggle").addEventListener("change", () => {
-    const mode = $("auto-open-toggle").checked ? "sieve" : "native";
-    chrome.storage.local.set({ activeViewMode: mode });
+    const autoOpen = $("auto-open-toggle").checked;
+    chrome.storage.local.set({ autoOpenSieve: autoOpen });
   });
 
   $("refresh-btn").addEventListener("click", checkHealth);
 
   $("clear-cache-btn").addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "CLEAR_CACHE" }, () => {
-      $("clear-cache-btn").textContent = "Cleared ✓";
-      setTimeout(() => { $("clear-cache-btn").textContent = "Clear Cache"; }, 1400);
+    const btn = $("clear-cache-btn");
+    btn.disabled = true;
+    btn.textContent = "Purging…";
+
+    chrome.runtime.sendMessage({ type: "CLEAR_CACHE" }, (res) => {
+      btn.disabled = false;
+      btn.textContent = "Cache Purged ✓";
+      setTimeout(() => { btn.textContent = "Clear Cache"; }, 1500);
+      checkHealth();
     });
   });
 
+  // Initial health check
   checkHealth();
 })();
-

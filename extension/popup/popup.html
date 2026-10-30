@@ -21,6 +21,10 @@
         <span class="key">Endpoint</span>
         <span class="val mono" id="engine-url">http://127.0.0.1:8787</span>
       </div>
+      <div class="row" id="latency-row" hidden>
+        <span class="key">Latency</span>
+        <span class="val mono" id="ping-latency">–</span>
+      </div>
       <div class="row">
         <span class="key">Local Model</span>
         <span class="val mono" id="model-name">…</span>
@@ -50,6 +54,7 @@
 
     <div id="offline-help" class="help-box" hidden>
       <p><strong>Engine not reachable:</strong></p>
+      <div class="err-detail" style="font-size:11px; margin: 4px 0; opacity: 0.9;">Connection refused</div>
       <code>python3 -m sieve --serve</code>
     </div>
   </main>
@@ -61,4 +66,3 @@
   <script src="popup.js"></script>
 </body>
 </html>
-

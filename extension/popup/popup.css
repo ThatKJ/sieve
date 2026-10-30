@@ -16,6 +16,25 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas-bg: #0d1117;
+    --surface-primary: #161b22;
+    --surface-secondary: #21262d;
+    --surface-elevated: #30363d;
+    --text-primary: #f0f6fc;
+    --text-secondary: #8b949e;
+    --text-muted: #6e7681;
+    --contrast-accent: #f0f6fc;
+    --border-subtle: #30363d;
+    --border-strong: #484f58;
+    --status-ready: #3fb950;
+    --status-ready-bg: rgba(63, 185, 80, 0.15);
+    --status-blocked: #f85149;
+    --status-blocked-bg: rgba(248, 81, 73, 0.15);
+  }
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   width: 320px;
@@ -112,7 +131,7 @@ body {
   border-radius: 8px;
   border: 1px solid var(--contrast-accent);
   background: var(--contrast-accent);
-  color: #FFFFFF;
+  color: var(--canvas-bg);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -124,6 +143,7 @@ body {
   color: var(--text-primary);
 }
 .btn:hover { opacity: 0.9; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .help-box {
   background: var(--status-blocked-bg);
@@ -136,7 +156,7 @@ body {
 .help-box code {
   display: block;
   margin-top: 5px;
-  background: #FFFFFF;
+  background: var(--surface-elevated);
   padding: 5px 8px;
   border-radius: 6px;
   border: 1px solid var(--border-subtle);
@@ -152,4 +172,3 @@ body {
   color: var(--text-muted);
   font-family: var(--font-mono);
 }
-
