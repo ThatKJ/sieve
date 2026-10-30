@@ -17,9 +17,32 @@ from . import github, llm
 PASS, INFO, WARN, FAIL = "pass", "info", "warn", "fail"
 
 
+# Where each check's evidence comes from: the Confidence Ledger groups findings by this.
+SOURCES = {
+    "repository": "Verified against repository files",
+    "github": "Derived from GitHub PR metadata and diff",
+    "model": "Inferred by the local model",
+}
+CHECK_SOURCE = {"imports": "repository", "references": "repository", "layout": "repository", "template": "repository",
+                "model": "model", "guidelines": "model"}
+
+
 def finding(check, status, title, detail="", evidence=None, fix=None, penalty=0):
-    return {"check": check, "status": status, "title": title, "detail": detail,
-            "evidence": evidence or [], "fix": fix, "penalty": penalty}
+    return {"check": check, "status": status, "title": title, "detail": detail, "evidence": evidence or [],
+            "fix": fix, "penalty": penalty, "source": CHECK_SOURCE.get(check, "github")}
+
+
+def confidence_ledger(findings, model_info, tree_truncated):
+    """What Sieve knows, by evidence source, plus what it explicitly did not verify."""
+    groups = {s: [f["title"] for f in findings if f["source"] == s] for s in SOURCES}
+    unknown = ["Tests were not executed: Sieve never runs contributor code."]
+    if tree_truncated:
+        unknown.append("Repository tree too large: file and import checks were skipped.")
+    if model_info is None:
+        unknown.append("Relevance to the issue not judged (model check not requested).")
+    elif not model_info["used"]:
+        unknown.append(f"Relevance to the issue not judged: {model_info['error']}")
+    return {"groups": [{"source": s, "label": SOURCES[s], "items": groups[s]} for s in SOURCES], "unknown": unknown}
 
 
 # ---------------------------------------------------------------- parsing helpers
@@ -459,6 +482,7 @@ def analyze(owner, repo, number, use_model=True, deep=True):
     total, verdict = score(findings)
     order = {FAIL: 0, WARN: 1, INFO: 2, PASS: 3}
     findings.sort(key=lambda f: order[f["status"]])
+    model_info = {"name": llm.MODEL, "used": judgment is not None, "error": model_error, "judgment": judgment} if use_model else None
     return {
         "pr": {"owner": owner, "repo": repo, "number": number, "title": pr["title"], "url": pr["html_url"],
                "author": pr["user"]["login"], "author_avatar": pr["user"].get("avatar_url"),
@@ -466,7 +490,8 @@ def analyze(owner, repo, number, use_model=True, deep=True):
                "created_at": pr["created_at"], "additions": pr.get("additions"), "deletions": pr.get("deletions"),
                "changed_files": pr.get("changed_files"), "linked_issues": issue_nums},
         "score": total, "verdict": verdict, "findings": findings,
-        "model": {"name": llm.MODEL, "used": judgment is not None, "error": model_error, "judgment": judgment} if use_model else None,
+        "model": model_info,
+        "ledger": confidence_ledger(findings, model_info, truncated),
         "comment": contributor_comment(pr, findings, judgment),
         "tree_truncated": truncated,
         "elapsed_s": round(time.time() - started, 1),

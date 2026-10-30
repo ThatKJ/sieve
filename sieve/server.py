@@ -6,7 +6,7 @@ import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import core, github, llm
+from . import atlas, core, github, llm
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
@@ -48,6 +48,10 @@ class Handler(SimpleHTTPRequestHandler):
             if url.path == "/api/analyze":
                 owner, repo, number = core.parse_pr_ref(q.get("pr", ""))
                 return self._json(200, core.analyze(owner, repo, number, use_model=q.get("model") == "1"))
+            if url.path == "/api/atlas":
+                if q.get("pr"):
+                    return self._json(200, atlas.atlas_for_pr(*core.parse_pr_ref(q["pr"])))
+                return self._json(200, atlas.atlas_for_repo(*core.parse_repo_ref(q.get("repo", ""))))
             if url.path == "/api/queue":
                 owner, repo = core.parse_repo_ref(q.get("repo", ""))
                 return self._json(200, {"owner": owner, "repo": repo, "rows": core.queue(owner, repo)})

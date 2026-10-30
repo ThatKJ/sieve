@@ -111,6 +111,33 @@ def file_text(owner, repo, path, ref):
     return base64.b64decode(data.get("content", "")).decode("utf-8", "replace")
 
 
+MAX_TARBALL_BYTES = 80 * 1024 * 1024
+
+
+def tarball(owner, repo, ref):
+    """Gzipped snapshot of the repo at `ref` (immutable for a SHA, so cached forever)."""
+    cache_file = CACHE_DIR / "tarballs" / f"{owner}_{repo}_{ref}.tar.gz".replace("/", "_")
+    if cache_file.exists():
+        return cache_file.read_bytes()
+    if OFFLINE:
+        raise GitHubError(f"Offline mode and no cached snapshot of {owner}/{repo}@{ref[:7]}", status=503)
+    req = urllib.request.Request(f"{API}/repos/{owner}/{repo}/tarball/{ref}", headers={"User-Agent": "sieve-pr-intake"})
+    if _get_token():
+        req.add_header("Authorization", f"Bearer {_get_token()}")
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=SSL_CONTEXT) as resp:
+            data = resp.read(MAX_TARBALL_BYTES + 1)
+    except urllib.error.HTTPError as e:
+        raise GitHubError(f"GitHub returned HTTP {e.code} downloading {owner}/{repo}", status=502 if e.code != 404 else 404) from None
+    except urllib.error.URLError as e:
+        raise GitHubError(f"Could not download {owner}/{repo} ({e.reason})", status=503) from None
+    if len(data) > MAX_TARBALL_BYTES:
+        raise GitHubError(f"{owner}/{repo} is too large to map (over {MAX_TARBALL_BYTES // 2**20} MB)", status=413)
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_bytes(data)
+    return data
+
+
 def user(login):
     return get(f"/users/{login}")
 
