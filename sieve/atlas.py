@@ -250,12 +250,99 @@ def impact(graph, pr_files):
             marks.setdefault(n["id"], {"role": "test-inferred", "reason": tests[n["id"]], "via": None})
 
     risks = regression_radar(pr_files, rev, changed)
+
+    # Structured impact graph nodes & edges
+    node_by_id = {n["id"]: n for n in graph.get("nodes", [])}
+    nodes = []
+    for p, m in sorted(marks.items()):
+        info = node_by_id.get(p)
+        nodes.append({
+            "id": p,
+            "path": p,
+            "role": m["role"],
+            "lang": info["lang"] if info else SOURCE_EXT.get(posixpath.splitext(p)[1], "text"),
+            "is_test": is_test(p),
+            "degree": info.get("degree", 0) if info else 0,
+            "symbols": info.get("symbols", []) if info else [],
+            "reason": m["reason"],
+            "via": m.get("via")
+        })
+
+    subgraph_ids = set(marks)
+    edges = [
+        {
+            "source": e["source"],
+            "target": e["target"],
+            "line": e.get("line"),
+            "names": e.get("names", []),
+            "stmt": e.get("stmt", ""),
+            "type": "imports"
+        }
+        for e in graph.get("edges", [])
+        if e["source"] in subgraph_ids and e["target"] in subgraph_ids
+    ]
+
+    summary = {
+        "changed_files": len(changed),
+        "direct_dependents": len(direct),
+        "related_test_files": len(tests),
+        "unresolved_imports": sum(1 for u in graph.get("unparsed", []) if u in subgraph_ids)
+    }
+
+    limitations = []
+    if graph.get("truncated"):
+        limitations.append(f"Repository graph bounded to top {MAX_NODES} most connected files.")
+    if graph.get("unparsed"):
+        limitations.append(f"{len(graph['unparsed'])} file(s) had syntax errors and could not be AST parsed.")
+    limitations.append("Static import analysis does not track dynamic runtime imports (e.g. importlib).")
+
     return {
+        "nodes": nodes,
+        "edges": edges,
+        "summary": summary,
+        "limitations": limitations,
+        # Backwards compatibility fields
         "marks": marks,
         "counts": {"changed": len(changed), "direct": len(direct), "indirect": len(indirect), "dependencies": uses, "tests": len(tests)},
         "tests": [{"file": p, "reason": r} for p, r in sorted(tests.items())],
         "risks": risks,
         "plan": verification_plan(changed, direct, tests, risks, status),
+    }
+
+
+def empty_impact(pr_files, limitation="Repository snapshot unavailable"):
+    """Graceful fallback impact structure when repository AST snapshot is unavailable."""
+    nodes = []
+    for f in pr_files:
+        p = f.get("filename", "")
+        if p:
+            st = f.get("status", "modified")
+            nodes.append({
+                "id": p,
+                "path": p,
+                "role": st,
+                "lang": SOURCE_EXT.get(posixpath.splitext(p)[1], "text"),
+                "is_test": is_test(p),
+                "degree": 0,
+                "symbols": [],
+                "reason": f"{st.capitalize()} in this PR",
+                "via": None
+            })
+    return {
+        "nodes": nodes,
+        "edges": [],
+        "summary": {
+            "changed_files": len(nodes),
+            "direct_dependents": 0,
+            "related_test_files": sum(1 for n in nodes if n["is_test"]),
+            "unresolved_imports": 0
+        },
+        "limitations": [limitation],
+        "marks": {n["id"]: {"role": n["role"], "reason": n["reason"], "via": None} for n in nodes},
+        "counts": {"changed": len(nodes), "direct": 0, "indirect": 0, "dependencies": 0, "tests": sum(1 for n in nodes if n["is_test"])},
+        "tests": [],
+        "risks": [],
+        "plan": [{"action": "inspect", "text": "Snapshot unavailable; review diff directly."}]
     }
 
 

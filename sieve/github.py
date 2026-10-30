@@ -144,3 +144,14 @@ def user(login):
 
 def search_issues(query):
     return get("/search/issues", {"q": query, "per_page": 10})
+
+
+def commits(owner, repo, path=None, since=None, per_page=30, page=1):
+    """List commits for a repository, optionally filtered by path or since date."""
+    params = {"per_page": min(per_page, 50), "page": max(page, 1)}
+    if path:
+        params["path"] = path
+    if since:
+        params["since"] = since
+    return get(f"/repos/{owner}/{repo}/commits", params)
+

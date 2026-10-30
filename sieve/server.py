@@ -11,6 +11,16 @@ from . import atlas, core, github, llm
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
+def _is_allowed_origin(origin):
+    if not origin:
+        return True
+    origin = origin.strip().rstrip("/")
+    if origin.startswith("chrome-extension://"):
+        return True
+    parsed = urllib.parse.urlparse(origin)
+    return parsed.hostname in ("localhost", "127.0.0.1")
+
+
 def health():
     try:
         with urllib.request.urlopen(llm.OLLAMA_URL + "/api/tags", timeout=2) as r:
@@ -33,15 +43,45 @@ class Handler(SimpleHTTPRequestHandler):
         if "/api/" in (args[0] if args else ""):
             super().log_message(fmt, *args)
 
+    def _check_origin(self):
+        origin = self.headers.get("Origin")
+        if origin and not _is_allowed_origin(origin):
+            self.send_response(403)
+            self.send_header("Content-Type", "application/json")
+            body = json.dumps({"error": "Forbidden: unauthorized origin"}).encode()
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return False
+        return True
+
+    def _cors_headers(self):
+        origin = self.headers.get("Origin")
+        if origin and _is_allowed_origin(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+            self.send_header("Vary", "Origin")
+
     def _json(self, status, payload):
         body = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        self._cors_headers()
         self.end_headers()
         self.wfile.write(body)
 
+    def do_OPTIONS(self):
+        if not self._check_origin():
+            return
+        self.send_response(204)
+        self._cors_headers()
+        self.end_headers()
+
     def do_GET(self):
+        if not self._check_origin():
+            return
         url = urllib.parse.urlparse(self.path)
         if not url.path.startswith("/api/"):
             return super().do_GET()
@@ -58,7 +98,15 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(200, atlas.atlas_for_repo(*core.parse_repo_ref(q.get("repo", ""))))
             if url.path == "/api/queue":
                 owner, repo = core.parse_repo_ref(q.get("repo", ""))
-                return self._json(200, {"owner": owner, "repo": repo, "rows": core.queue(owner, repo)})
+                rows = core.queue(owner, repo)
+                summary = {
+                    "total_open": len(rows),
+                    "needs_attention": sum(1 for r in rows if r.get("category") == "needs_attention"),
+                    "ready_for_review": sum(1 for r in rows if r.get("category") == "ready_for_review"),
+                    "potentially_risky": sum(1 for r in rows if r.get("category") == "potentially_risky"),
+                    "drafts": sum(1 for r in rows if r.get("draft")),
+                }
+                return self._json(200, {"owner": owner, "repo": repo, "summary": summary, "rows": rows})
             return self._json(404, {"error": "Unknown endpoint"})
         except ValueError as e:
             return self._json(400, {"error": str(e)})

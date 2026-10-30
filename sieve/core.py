@@ -10,7 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-from . import github, llm
+from . import atlas, github, llm
 
 # ---------------------------------------------------------------- findings
 
@@ -426,6 +426,96 @@ def rule_lines(text, limit=3000):
     return "\n".join(picked)
 
 
+REVERT_MSG_RE = re.compile(r"\b(?:revert(?:ed|ing|s)?|back(?:ing)?\s+out)\b", re.I)
+FIX_MSG_RE = re.compile(r"\b(?:fix(?:e[sd]|ing)?|bug|patch(?:ed)?|regress(?:ion)?|issue)\b", re.I)
+
+
+def hotspot_radar(owner, repo, file_paths, days=90, max_files=5, max_commits_per_file=30):
+    """Inspect recent commit history for files modified by this PR.
+
+    Collects commit count, distinct contributors, candidate revert commits,
+    and candidate regression fixes. Does not infer confirmed regressions from
+    commit message keywords alone.
+    """
+    if not file_paths:
+        return {
+            "time_window_days": days,
+            "files_inspected": [],
+            "total_commits": 0,
+            "distinct_contributors": 0,
+            "per_file_churn": {},
+            "candidate_reverts": [],
+            "candidate_fixes": [],
+            "recent_commits": [],
+            "status": "empty_diff"
+        }
+
+    since_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    target_files = [p for p in file_paths if not is_doc_path(p)][:max_files]
+    if not target_files:
+        target_files = list(file_paths)[:max_files]
+
+    all_commits = {}
+    per_file_churn = {}
+    candidate_reverts = []
+    candidate_fixes = []
+
+    for fpath in target_files:
+        try:
+            commits_data = github.commits(owner, repo, path=fpath, since=since_date, per_page=max_commits_per_file)
+            if not isinstance(commits_data, list):
+                commits_data = []
+        except Exception:
+            commits_data = []
+
+        per_file_churn[fpath] = len(commits_data)
+
+        for c in commits_data:
+            sha = c.get("sha", "")
+            if not sha or sha in all_commits:
+                continue
+
+            commit_obj = c.get("commit") or {}
+            message = commit_obj.get("message") or ""
+            headline = message.split("\n")[0].strip() if message else ""
+            author_info = c.get("author") or {}
+            author_login = author_info.get("login") or (commit_obj.get("author") or {}).get("name") or "unknown"
+            date = (commit_obj.get("author") or {}).get("date") or ""
+            html_url = c.get("html_url") or f"https://github.com/{owner}/{repo}/commit/{sha}"
+
+            entry = {
+                "sha": sha[:7],
+                "full_sha": sha,
+                "message": headline,
+                "author": author_login,
+                "date": date,
+                "url": html_url,
+                "file": fpath
+            }
+            all_commits[sha] = entry
+
+            if REVERT_MSG_RE.search(message):
+                candidate_reverts.append(entry)
+            elif FIX_MSG_RE.search(message):
+                candidate_fixes.append(entry)
+
+    unique_authors = {c["author"] for c in all_commits.values() if c["author"] != "unknown"}
+    sorted_commits = sorted(all_commits.values(), key=lambda x: x.get("date", ""), reverse=True)
+
+    status = "ok" if all_commits else "no_history"
+    return {
+        "time_window_days": days,
+        "files_inspected": target_files,
+        "total_commits": len(all_commits),
+        "distinct_contributors": len(unique_authors),
+        "per_file_churn": per_file_churn,
+        "candidate_reverts": candidate_reverts[:8],
+        "candidate_fixes": candidate_fixes[:8],
+        "recent_commits": sorted_commits[:10],
+        "status": status
+    }
+
+
 def analyze(owner, repo, number, use_model=True, deep=True):
     """Full analysis of one PR. deep=False skips per-author/competition searches (queue mode)."""
     started = time.time()
@@ -456,6 +546,21 @@ def analyze(owner, repo, number, use_model=True, deep=True):
             competing[n] = [i["number"] for i in res.get("items", [])] if res else []
     findings += check_author(pr, user_data, recent)
     findings += check_competing(number, issue_nums, competing)
+
+    # Impact Graph (AST & import topology)
+    graph = None
+    if pr.get("base") and pr["base"].get("sha"):
+        graph = _safe(atlas.repo_graph, owner, repo, pr["base"]["sha"])
+    if graph:
+        impact_data = atlas.impact(graph, files)
+    else:
+        impact_data = atlas.empty_impact(files, limitation="Repository snapshot unavailable: impact graph could not be mapped")
+
+    # Historical Hotspot Radar (Archaeology)
+    archaeology_data = None
+    if deep:
+        changed_paths = [f["filename"] for f in files if f.get("status") != "removed"]
+        archaeology_data = _safe(hotspot_radar, owner, repo, changed_paths, default=None)
 
     judgment, model_error = None, None
     if use_model:
@@ -490,6 +595,8 @@ def analyze(owner, repo, number, use_model=True, deep=True):
                "created_at": pr["created_at"], "additions": pr.get("additions"), "deletions": pr.get("deletions"),
                "changed_files": pr.get("changed_files"), "linked_issues": issue_nums},
         "score": total, "verdict": verdict, "findings": findings,
+        "impact": impact_data,
+        "archaeology": archaeology_data,
         "model": model_info,
         "ledger": confidence_ledger(findings, model_info, truncated),
         "comment": contributor_comment(pr, findings, judgment),
@@ -515,8 +622,74 @@ def queue(owner, repo, limit=15):
             continue
         fails = [f["title"] for f in r["findings"] if f["status"] == FAIL]
         warns = [f["title"] for f in r["findings"] if f["status"] == WARN]
-        rows.append({"number": pr["number"], "title": pr["title"], "url": pr["html_url"], "author": pr["user"]["login"],
+        category = "needs_attention"
+        if pr.get("draft"):
+            category = "drafts"
+        elif r["verdict"] == "ready":
+            category = "ready_for_review"
+        elif r["verdict"] == "low-effort" or any(f.get("status") == FAIL for f in r["findings"]):
+            category = "potentially_risky"
+
+        impact_summary = (r.get("impact") or {}).get("summary") or {}
+        author_login = (pr.get("user") or {}).get("login") or "unknown"
+        is_bot = author_login.endswith("[bot]") or author_login.lower() in ("dependabot", "renovate", "github-actions")
+        
+        turn_status = "action_needed_you"
+        if is_bot:
+            turn_status = "bot_stream"
+            category = "bot_stream"
+        elif pr.get("draft"):
+            turn_status = "blocked"
+        elif category == "potentially_risky":
+            turn_status = "needs_attention"
+        elif category == "ready_for_review" and r.get("score", 0) >= 90:
+            turn_status = "merge_candidate"
+
+        # Track modified files for cross-PR collision detection
+        mod_files = [n["id"] for n in (r.get("impact") or {}).get("nodes", []) if n.get("role") == "modified"]
+        linked_issues = r["pr"].get("linked_issues", [])
+
+        rows.append({"number": pr["number"], "title": pr["title"], "url": pr.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr['number']}",
+                     "author": author_login,
+                     "author_avatar": (pr.get("user") or {}).get("avatar_url") or "",
                      "association": pr.get("author_association"), "score": r["score"], "verdict": r["verdict"],
-                     "top_issues": (fails + warns)[:3], "draft": pr.get("draft", False)})
+                     "category": category,
+                     "turn_status": turn_status,
+                     "is_bot": is_bot,
+                     "top_issues": (fails + warns)[:3], "draft": pr.get("draft", False),
+                     "created_at": pr.get("created_at"), "updated_at": pr.get("updated_at"),
+                     "changed_files": r["pr"].get("changed_files", 0),
+                     "additions": r["pr"].get("additions", 0), "deletions": r["pr"].get("deletions", 0),
+                     "impact_summary": impact_summary,
+                     "modified_files": mod_files,
+                     "linked_issues": linked_issues,
+                     "collisions": [],
+                     "duplicate_fixes": []})
+
+    # Cross-PR collision and duplicate fix detection pass
+    file_map = {}
+    issue_map = {}
+    for row in rows:
+        pr_num = row["number"]
+        for f in row.get("modified_files", []):
+            file_map.setdefault(f, []).append(pr_num)
+        for iss in row.get("linked_issues", []):
+            issue_map.setdefault(iss, []).append(pr_num)
+
+    for row in rows:
+        pr_num = row["number"]
+        # File collisions
+        for f in row.get("modified_files", []):
+            others = [p for p in file_map.get(f, []) if p != pr_num]
+            for other_pr in others:
+                if not any(c["with_pr"] == other_pr and c["file"] == f for c in row["collisions"]):
+                    row["collisions"].append({"with_pr": other_pr, "file": f, "type": "file_collision"})
+        # Duplicate issue fixes
+        for iss in row.get("linked_issues", []):
+            others = [p for p in issue_map.get(iss, []) if p != pr_num]
+            for other_pr in others:
+                if not any(d["with_pr"] == other_pr for d in row["duplicate_fixes"]):
+                    row["duplicate_fixes"].append({"with_pr": other_pr, "issue": iss})
+
     rows.sort(key=lambda r: r.get("score", -1), reverse=True)
     return rows
