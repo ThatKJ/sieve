@@ -68,6 +68,12 @@ class Impact(unittest.TestCase):
         self.assertIn("tests/test_money.py", [t["file"] for t in imp["tests"]])
         self.assertTrue(any(s.get("command", "").startswith("pytest tests/test_money.py") for s in imp["plan"]))
 
+    def test_plan_runs_the_prs_own_tests_first(self):
+        files = [{"filename": "app/money.py", "status": "modified", "patch": "+x"},
+                 {"filename": "tests/test_new.py", "status": "added", "patch": "+def test_x(): pass"}]
+        run = next(s for s in atlas.impact(graph(), files)["plan"] if s["action"] == "run")
+        self.assertTrue(run["command"].startswith("pytest tests/test_new.py tests/test_money.py"))
+
     def test_deleted_file_still_imported(self):
         imp = atlas.impact(graph(), [{"filename": "app/report.py", "status": "removed", "patch": ""}])
         self.assertEqual(imp["risks"][0]["kind"], "deleted-but-imported")

@@ -25,3 +25,16 @@
 17. **Feasibility:** GitHub REST API (PR, files, issue, tree, author), deterministic checks in Python, Ollama qwen3.5:9b (verified working locally, ~6 s for a short JSON reply). Plain FastAPI + single static page.
 18. **Main risks:** 9B model misjudging relevance (mitigated: model only gives one bounded judgment, with deterministic fallback); GitHub rate limits (token from env + on-disk cache); fairness (never auto-close, show evidence, contributor-facing wording).
 19. **Why the others lost:** CI explainer competes with a free built-in Copilot feature and has an unreliable live demo; breaking-change triage depends on inconsistent changelogs; issue intake overlaps with GitHub's native preview; PS-10 open data has the weakest willingness to pay.
+
+---
+
+## Update, 01:10 IST: scope expanded to a review workbench
+
+New material input from the team: the product should understand the repository, not only score the PR. Kept the winning problem and buyer; expanded the solution:
+
+- **Repository Atlas + PR impact:** a file-level import graph from a repo snapshot, with each PR's changed, direct and indirect files highlighted and every link backed by an import line.
+- **Regression radar:** for example "symbol removed but still imported at file:line".
+- **Verification plan + reviewer brief:** concrete next steps, never executed by Sieve.
+- **Confidence ledger:** every finding labelled repository / GitHub data / model, plus what was not verified.
+
+Competitive reality check: blast-radius graphs already exist (CodeRabbit's Security Blast Radius in Change Stack, open-source "focus", PR Autopilot), and the method (BFS over an import graph) is standard. Sieve does not claim the graph is novel. Its differentiation is the combination: verifying the PR's own claims, evidence-source labelling, a local open-weight model, zero per-PR cost, and strictly read-only operation, aimed at OSS maintainers rather than enterprise security teams.

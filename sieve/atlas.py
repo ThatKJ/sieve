@@ -296,7 +296,9 @@ def verification_plan(changed, direct, tests, risks, status):
     for r in risks:
         if r["kind"] in ("deleted-but-imported", "removed-symbol-in-use"):
             plan.append({"action": "fix", "text": f"Resolve the broken reference: {r['title']}", "target": r["evidence"][0].split(":")[0]})
-    py_tests = sorted(t for t in tests if t.endswith(".py"))
+    # the PR's own tests come first: they are the most direct evidence for the change
+    own_tests = sorted(c for c in changed if is_test(c) and status.get(c) != "removed")
+    py_tests = [t for t in own_tests if t.endswith(".py")] + sorted(t for t in tests if t.endswith(".py") and t not in own_tests)
     if py_tests:
         plan.append({"action": "run", "text": "Run the tests that exercise the changed code", "command": "pytest " + " ".join(py_tests[:6])})
     elif tests:
