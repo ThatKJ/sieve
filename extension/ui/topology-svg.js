@@ -87,7 +87,7 @@ window.SieveTopology = (function () {
     const svg = svgEl("svg", {
       viewBox: `0 0 ${SVG_W} ${SVG_H}`,
       width: "100%",
-      height: "auto",
+      height: SVG_H,
       style: "display: block; user-select: none; background: #faf9f6; border-radius: 10px; border: 1px solid rgba(29,29,31,0.1);"
     });
 
