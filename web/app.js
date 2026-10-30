@@ -45,6 +45,19 @@ function el(tag, attrs = {}, children = []) {
 // replaceChildren() renders null as the text "null"; this drops empty children first
 const fill = (node, ...kids) => node.replaceChildren(...kids.flat().filter((k) => k !== null && k !== undefined && k !== false));
 
+function svgEl(tag, attrs = {}, children = []) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === null || v === undefined || v === false) continue;
+    node.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of [].concat(children)) {
+    if (c === null || c === undefined || c === false) continue;
+    node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return node;
+}
+
 const safeGitHub = (url) => typeof url === "string" && /^https:\/\/github\.com\//.test(url);
 const link = (href, text) => (safeGitHub(href) ? el("a", { href, target: "_blank", rel: "noopener", text }) : el("span", { text }));
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -220,6 +233,581 @@ function renderInspector(box, n) {
   );
 }
 
+// ---------------------------------------------------------------- Impact Topology SVG Workbench
+function topologyWorkbench(impactData, onSelectFile) {
+  const container = el("section", { class: "topology-workbench", "aria-label": "PR Impact Topology Workbench" });
+  let currentImpact = impactData;
+  let activeSelectedId = null;
+
+  const titleEl = el("div", { class: "panel-head" }, [
+    el("div", {}, [
+      el("h2", { text: "PR Impact Topology" }),
+      el("p", { class: "sub", text: "Deterministic import blast radius: modified modules, internal dependents, and verified test consumers." })
+    ])
+  ]);
+
+  const searchInput = el("input", {
+    type: "search",
+    class: "top-search",
+    placeholder: "Filter topology files…",
+    "aria-label": "Filter files in topology graph"
+  });
+
+  const resetBtn = el("button", { type: "button", class: "btn ghost small", text: "Reset" });
+  const expandBtn = el("button", { type: "button", class: "btn ghost small", text: "Full screen", "aria-pressed": "false" });
+
+  const summaryBar = el("div", { class: "top-summary-bar" });
+  const stage = el("div", { class: "topology-stage" });
+  const scrollWrap = el("div", { class: "topology-scroll" });
+  const inspector = el("aside", { class: "top-inspector glass", hidden: true, "aria-live": "polite" });
+
+  stage.append(scrollWrap, inspector);
+  container.append(
+    el("div", { class: "top-toolbar" }, [
+      titleEl,
+      el("div", { class: "top-actions" }, [searchInput, resetBtn, expandBtn])
+    ]),
+    summaryBar,
+    stage
+  );
+
+  function toggleFull(on) {
+    stage.classList.toggle("full", on);
+    expandBtn.setAttribute("aria-pressed", String(on));
+    expandBtn.textContent = on ? "Exit full screen" : "Full screen";
+    document.body.classList.toggle("no-scroll", on);
+  }
+  expandBtn.addEventListener("click", () => toggleFull(!stage.classList.contains("full")));
+  stage.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (stage.classList.contains("full")) toggleFull(false);
+      selectNode(null);
+    }
+  });
+
+  function selectNode(id) {
+    activeSelectedId = id;
+    const nodeElements = stage._nodeElements;
+    const edgeElements = stage._edgeElements;
+    const edges = currentImpact?.edges || [];
+
+    if (!nodeElements || !edgeElements) return;
+
+    if (!id) {
+      nodeElements.forEach(({ el: nodeEl }) => {
+        nodeEl.classList.remove("selected", "neighbor-active", "dimmed");
+      });
+      edgeElements.forEach(({ el: edgeEl }) => {
+        edgeEl.classList.remove("edge-active", "dimmed");
+        edgeEl.setAttribute("marker-end", "url(#arrow-top)");
+      });
+      inspector.hidden = true;
+      fill(inspector, );
+      onSelectFile?.(null);
+      return;
+    }
+
+    const selected = nodeElements.get(id);
+    if (!selected) return;
+
+    const inbound = edges.filter((e) => e.target === id);
+    const outbound = edges.filter((e) => e.source === id);
+    const connected = new Set([id, ...inbound.map((e) => e.source), ...outbound.map((e) => e.target)]);
+
+    nodeElements.forEach(({ el: nodeEl }, nId) => {
+      if (nId === id) {
+        nodeEl.classList.add("selected");
+        nodeEl.classList.remove("neighbor-active", "dimmed");
+      } else if (connected.has(nId)) {
+        nodeEl.classList.add("neighbor-active");
+        nodeEl.classList.remove("selected", "dimmed");
+      } else {
+        nodeEl.classList.add("dimmed");
+        nodeEl.classList.remove("selected", "neighbor-active");
+      }
+    });
+
+    edgeElements.forEach(({ el: edgeEl, edge }) => {
+      if (edge.source === id || edge.target === id) {
+        edgeEl.classList.add("edge-active");
+        edgeEl.classList.remove("dimmed");
+        edgeEl.setAttribute("marker-end", "url(#arrow-active)");
+      } else {
+        edgeEl.classList.add("dimmed");
+        edgeEl.classList.remove("edge-active");
+        edgeEl.setAttribute("marker-end", "url(#arrow-top)");
+      }
+    });
+
+    renderInspector(selected.node, inbound, outbound);
+    onSelectFile?.(id);
+  }
+
+  function renderInspector(n, inbound, outbound) {
+    inspector.hidden = false;
+    const role = n.role || (n.is_test ? "test-inferred" : "direct");
+    const roleDesc = {
+      modified: "Epicenter — modified in this PR. Changes to public interfaces ripple to dependents.",
+      added: "Newly added file in this pull request.",
+      removed: "Deleted in this pull request. Review dependents for broken imports.",
+      renamed: "Renamed in this pull request.",
+      direct: "Direct Dependent — imports this module directly in repository code.",
+      indirect: "Indirect Dependent — imports a direct dependent of this module.",
+      dependency: "Upstream Dependency — imported by the modified code.",
+      "test-inferred": "Test Consumer — imports and exercises this module."
+    }[role] || n.reason || "Connected via repository import statement.";
+
+    const copyBtn = el("button", { type: "button", class: "btn ghost small", text: "Copy path" });
+    copyBtn.addEventListener("click", () => copyText(copyBtn, n.path));
+
+    const edgeItem = (otherId, stmt, line) => el("li", { class: "top-edge-item" }, [
+      el("button", {
+        type: "button",
+        class: "linkish",
+        text: otherId,
+        onclick: () => selectNode(otherId)
+      }),
+      stmt ? el("code", { text: `:${line || 1}  ${stmt}` }) : null
+    ]);
+
+    fill(inspector, [
+      el("div", { class: "insp-head" }, [
+        el("div", {}, [
+          el("p", { class: "eyebrow", text: ROLE_LABEL[role] || role }),
+          el("h3", { class: "path", text: n.path })
+        ]),
+        el("button", {
+          type: "button",
+          class: "icon-btn",
+          "aria-label": "Close inspector",
+          text: "×",
+          onclick: () => selectNode(null)
+        })
+      ]),
+      el("p", { class: `role-note role-${role}` }, [
+        el("strong", { text: ROLE_LABEL[role] || role }),
+        el("span", { text: roleDesc })
+      ]),
+      el("dl", { class: "facts" }, [
+        el("dt", { text: "Language" }), el("dd", { text: n.lang || "python" }),
+        el("dt", { text: "Imported by" }), el("dd", { text: plural(inbound.length, "file") }),
+        el("dt", { text: "Imports" }), el("dd", { text: plural(outbound.length, "internal file") }),
+      ]),
+      n.symbols?.length ? el("div", { class: "insp-block" }, [
+        el("h4", { text: "Top-level symbols" }),
+        el("p", { class: "chips" }, n.symbols.slice(0, 16).map((s) => el("code", { text: s })))
+      ]) : null,
+      inbound.length ? el("div", { class: "insp-block" }, [
+        el("h4", { text: `Imported by (${inbound.length})` }),
+        el("ul", { class: "edges" }, inbound.slice(0, 10).map((e) => edgeItem(e.source, e.stmt, e.line)))
+      ]) : null,
+      outbound.length ? el("div", { class: "insp-block" }, [
+        el("h4", { text: `Imports (${outbound.length})` }),
+        el("ul", { class: "edges" }, outbound.slice(0, 10).map((e) => edgeItem(e.target, e.stmt, e.line)))
+      ]) : null,
+      n.is_test || role === "test-inferred" ? el("p", { class: "muted small", text: "✓ Verified test module connected to the PR blast radius." }) : null,
+      el("div", { class: "row", style: "margin-top: 8px;" }, [copyBtn]),
+      el("p", { class: "muted small source-note", text: "Evidence: deterministic AST import resolution against base branch" })
+    ]);
+  }
+
+  function render(impact) {
+    currentImpact = impact || { nodes: [], edges: [], summary: {}, limitations: [] };
+    const nodes = currentImpact.nodes || [];
+    const edges = currentImpact.edges || [];
+    const summary = currentImpact.summary || {};
+
+    // Summary bar
+    fill(summaryBar, [
+      el("span", { class: "top-chip" }, [el("strong", { text: String(summary.changed_files ?? nodes.filter((n) => ["modified", "added", "renamed", "removed"].includes(n.role)).length) }), " changed"]),
+      el("span", { class: "top-chip" }, [el("strong", { text: String(summary.direct_dependents ?? nodes.filter((n) => ["direct", "indirect"].includes(n.role) && !n.is_test).length) }), " dependents"]),
+      el("span", { class: "top-chip ok" }, [el("strong", { text: String(summary.related_test_files ?? nodes.filter((n) => n.is_test || n.role === "test-inferred").length) }), " tests"]),
+      summary.unresolved_imports ? el("span", { class: "top-chip warn" }, [el("strong", { text: String(summary.unresolved_imports) }), " unresolved"]) : null
+    ]);
+
+    if (!nodes.length) {
+      fill(scrollWrap, el("div", { class: "top-empty" }, [
+        el("div", { class: "top-empty-icon", "aria-hidden": "true" }, "🛡️"),
+        el("h3", { text: "Isolated Change — Zero Internal Code Blast Radius" }),
+        el("p", { class: "sub", text: "None of the files changed in this pull request are imported by other modules in this repository." }),
+        currentImpact.limitations?.length ? el("p", { class: "muted small", text: currentImpact.limitations.join(" · ") }) : null
+      ]));
+      inspector.hidden = true;
+      return;
+    }
+
+    // Partition into columns
+    const colUpstream = [];
+    const colChanged = [];
+    const colDependents = [];
+    const colTests = [];
+
+    for (const n of nodes) {
+      if (n.is_test || n.role === "test-inferred") {
+        colTests.push(n);
+      } else if (n.role === "dependency") {
+        colUpstream.push(n);
+      } else if (["modified", "added", "renamed", "removed"].includes(n.role)) {
+        colChanged.push(n);
+      } else {
+        colDependents.push(n);
+      }
+    }
+
+    colUpstream.sort((a, b) => b.degree - a.degree || a.path.localeCompare(b.path));
+    colChanged.sort((a, b) => b.degree - a.degree || a.path.localeCompare(b.path));
+    colDependents.sort((a, b) => b.degree - a.degree || a.path.localeCompare(b.path));
+    colTests.sort((a, b) => b.degree - a.degree || a.path.localeCompare(b.path));
+
+    const columns = [];
+    if (colUpstream.length) columns.push({ id: "upstream", label: "UPSTREAM DEPS", items: colUpstream });
+    columns.push({ id: "changed", label: "CHANGED IN PR", items: colChanged });
+    if (colDependents.length) columns.push({ id: "dependents", label: "DIRECT DEPENDENTS", items: colDependents });
+    if (colTests.length) columns.push({ id: "tests", label: "TEST CONSUMERS", items: colTests });
+
+    const K = columns.length;
+    const CARD_W = 216;
+    const CARD_H = 46;
+    const GAP_X = Math.max(54, Math.floor((960 - 64 - K * CARD_W) / Math.max(1, K - 1)));
+    const SVG_W = Math.max(920, 64 + K * CARD_W + (K - 1) * GAP_X);
+
+    const Y_START = 64;
+    const STEP_Y = CARD_H + 16;
+    const maxItems = Math.max(1, ...columns.map((c) => c.items.length));
+    const SVG_H = Math.max(380, Y_START + maxItems * STEP_Y + 40);
+
+    const nodePos = new Map();
+    columns.forEach((col, cIdx) => {
+      const colX = 32 + cIdx * (CARD_W + GAP_X);
+      col.items.forEach((item, iIdx) => {
+        const itemY = Y_START + iIdx * STEP_Y;
+        nodePos.set(item.id, {
+          x: colX,
+          y: itemY,
+          w: CARD_W,
+          h: CARD_H,
+          node: item,
+          colId: col.id
+        });
+      });
+    });
+
+    const svg = svgEl("svg", {
+      class: "topology-svg",
+      viewBox: `0 0 ${SVG_W} ${SVG_H}`,
+      width: SVG_W,
+      height: SVG_H,
+      role: "img",
+      "aria-label": "Interactive dependency impact graph"
+    });
+
+    // Defs
+    const defs = svgEl("defs", {}, [
+      svgEl("marker", {
+        id: "arrow-top",
+        viewBox: "0 0 10 10",
+        refX: "8",
+        refY: "5",
+        markerWidth: "6",
+        markerHeight: "6",
+        orient: "auto-start-reverse"
+      }, [
+        svgEl("path", { d: "M 0 1.5 L 8 5 L 0 8.5 z", fill: "rgba(29, 29, 31, 0.45)" })
+      ]),
+      svgEl("marker", {
+        id: "arrow-active",
+        viewBox: "0 0 10 10",
+        refX: "8",
+        refY: "5",
+        markerWidth: "7",
+        markerHeight: "7",
+        orient: "auto-start-reverse"
+      }, [
+        svgEl("path", { d: "M 0 1.5 L 8 5 L 0 8.5 z", fill: "#2f5bea" })
+      ])
+    ]);
+    svg.append(defs);
+
+    // Column headers
+    columns.forEach((col, cIdx) => {
+      const colX = 32 + cIdx * (CARD_W + GAP_X);
+      svg.append(
+        svgEl("text", {
+          class: "top-col-label",
+          x: colX + CARD_W / 2,
+          y: 36,
+          "text-anchor": "middle"
+        }, [`${col.label} (${col.items.length})`])
+      );
+    });
+
+    // Edges group
+    const edgesGroup = svgEl("g", { class: "top-edges-layer" });
+    const edgeElements = [];
+
+    edges.forEach((edge) => {
+      const pSrc = nodePos.get(edge.source);
+      const pTgt = nodePos.get(edge.target);
+      if (!pSrc || !pTgt) return;
+
+      let x1, y1, x2, y2;
+      if (pTgt.x < pSrc.x) {
+        x1 = pTgt.x + CARD_W;
+        y1 = pTgt.y + CARD_H / 2;
+        x2 = pSrc.x;
+        y2 = pSrc.y + CARD_H / 2;
+      } else if (pSrc.x < pTgt.x) {
+        x1 = pSrc.x + CARD_W;
+        y1 = pSrc.y + CARD_H / 2;
+        x2 = pTgt.x;
+        y2 = pTgt.y + CARD_H / 2;
+      } else {
+        x1 = pSrc.x + CARD_W;
+        y1 = pSrc.y + CARD_H / 2;
+        x2 = pTgt.x + CARD_W;
+        y2 = pTgt.y + CARD_H / 2;
+      }
+
+      const dx = Math.max(32, Math.abs(x2 - x1) * 0.45);
+      const d = x1 === x2
+        ? `M ${x1} ${y1} C ${x1 + 45} ${y1}, ${x2 + 45} ${y2}, ${x2} ${y2}`
+        : `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+
+      const pathEl = svgEl("path", {
+        class: "top-edge",
+        d,
+        "marker-end": "url(#arrow-top)",
+        "data-source": edge.source,
+        "data-target": edge.target
+      }, [
+        svgEl("title", {}, [`${edge.source} -> ${edge.target} (${edge.stmt || ""})`])
+      ]);
+
+      edgesGroup.append(pathEl);
+      edgeElements.push({ el: pathEl, edge });
+    });
+    svg.append(edgesGroup);
+
+    // Nodes group
+    const nodesGroup = svgEl("g", { class: "top-nodes-layer" });
+    const nodeElements = new Map();
+
+    nodePos.forEach((pos, id) => {
+      const n = pos.node;
+      const role = n.role || (n.is_test ? "test-inferred" : "direct");
+      const badgeText = {
+        modified: "MOD", added: "ADD", removed: "DEL", renamed: "REN",
+        direct: "DEP", indirect: "INDIR", dependency: "UP", "test-inferred": "TEST"
+      }[role] || (n.is_test ? "TEST" : "DEP");
+
+      const parts = n.path.split("/");
+      const fileName = parts.pop();
+      const dirName = parts.length ? parts.join("/") + "/" : "";
+
+      const g = svgEl("g", {
+        class: `top-node role-${role}`,
+        "data-id": n.id,
+        tabindex: "0",
+        role: "button",
+        "aria-label": `${n.path} (${role})`
+      }, [
+        svgEl("rect", { class: "top-node-bg", x: pos.x, y: pos.y, width: pos.w, height: pos.h, rx: 8, ry: 8 }),
+        svgEl("rect", { class: "top-node-accent", x: pos.x, y: pos.y, width: 4, height: pos.h, rx: 2 }),
+        svgEl("text", { class: "top-node-title", x: pos.x + 14, y: pos.y + 20 }, [fileName]),
+        svgEl("text", { class: "top-node-dir", x: pos.x + 14, y: pos.y + 36 }, [dirName || "(root)"]),
+        svgEl("rect", { class: "top-badge-bg", x: pos.x + pos.w - 50, y: pos.y + 13, width: 42, height: 20, rx: 5 }),
+        svgEl("text", { class: "top-badge-txt", x: pos.x + pos.w - 29, y: pos.y + 27 }, [badgeText])
+      ]);
+
+      g.addEventListener("click", () => selectNode(activeSelectedId === n.id ? null : n.id));
+      g.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          selectNode(activeSelectedId === n.id ? null : n.id);
+        }
+      });
+
+      nodesGroup.append(g);
+      nodeElements.set(n.id, { el: g, node: n, pos });
+    });
+    svg.append(nodesGroup);
+
+    stage._nodeElements = nodeElements;
+    stage._edgeElements = edgeElements;
+    fill(scrollWrap, svg);
+
+    // Filter functionality
+    searchInput.oninput = () => {
+      const q = searchInput.value.trim().toLowerCase();
+      if (!q) {
+        nodeElements.forEach(({ el: nodeEl }) => nodeEl.classList.remove("filter-dimmed"));
+        return;
+      }
+      nodeElements.forEach(({ el: nodeEl, node: n }) => {
+        const matches = n.path.toLowerCase().includes(q) || (n.symbols || []).some((s) => s.toLowerCase().includes(q));
+        nodeEl.classList.toggle("filter-dimmed", !matches);
+      });
+    };
+
+    resetBtn.onclick = () => {
+      searchInput.value = "";
+      nodeElements.forEach(({ el: nodeEl }) => nodeEl.classList.remove("filter-dimmed"));
+      selectNode(null);
+    };
+  }
+
+  render(impactData);
+
+  return {
+    root: container,
+    select: (id) => {
+      const nodeEl = stage.querySelector(`[data-id="${id}"]`);
+      if (nodeEl) nodeEl.dispatchEvent(new MouseEvent("click"));
+    },
+    update: render
+  };
+}
+
+// ---------------------------------------------------------------- Historical Hotspot Radar
+function renderHotspotRadar(archaeology) {
+  if (!archaeology) {
+    return el("section", { class: "card hotspot-card" }, [
+      el("h3", { text: "Historical Hotspot Radar" }),
+      el("p", { class: "muted", text: "Loading commit history for modified paths…" })
+    ]);
+  }
+
+  if (archaeology.status === "no_history") {
+    return el("section", { class: "card hotspot-card" }, [
+      el("div", { class: "card-head" }, [
+        el("h3", { text: "Historical Hotspot Radar" }),
+        el("span", { class: "pill", text: "90 days" })
+      ]),
+      el("p", { class: "sub", text: "Commit forensics on modified paths to spot recurring churn or regression patterns." }),
+      el("p", { class: "muted small", text: "No commit history found for these files within the past 90 days." })
+    ]);
+  }
+
+  if (archaeology.status === "empty_diff") {
+    return el("section", { class: "card hotspot-card" }, [
+      el("div", { class: "card-head" }, [
+        el("h3", { text: "Historical Hotspot Radar" }),
+        el("span", { class: "pill", text: "empty" })
+      ]),
+      el("p", { class: "sub", text: "No modified source files to inspect." })
+    ]);
+  }
+
+  const churnEntries = Object.entries(archaeology.per_file_churn || {});
+  const maxChurn = Math.max(1, ...churnEntries.map(([, c]) => c));
+  const churnList = churnEntries.length ? el("div", { class: "churn-list" }, churnEntries.map(([file, count]) => {
+    const pct = Math.round((count / maxChurn) * 100);
+    return el("div", { class: "churn-row" }, [
+      el("div", { class: "churn-info" }, [
+        el("code", { class: "churn-file", text: file }),
+        el("span", { class: "churn-count", text: plural(count, "commit") })
+      ]),
+      el("div", { class: "churn-bar-track" }, [
+        el("div", { class: "churn-bar-fill", style: `width: ${pct}%` })
+      ])
+    ]);
+  })) : null;
+
+  const reverts = archaeology.candidate_reverts || [];
+  const revertList = reverts.length ? el("div", { class: "hotspot-subgroup" }, [
+    el("div", { class: "hotspot-subhead" }, [
+      el("h4", { text: `Candidate Reverts (${reverts.length})` }),
+      el("span", { class: "heuristic-badge warn", text: "Heuristic: commit message matches revert" })
+    ]),
+    el("ul", { class: "commit-list" }, reverts.map((c) => el("li", { class: "commit-item revert-item" }, [
+      el("div", { class: "commit-head" }, [
+        link(c.url, c.sha),
+        el("span", { class: "commit-author", text: `@${c.author}` }),
+        c.date ? el("span", { class: "commit-date", text: c.date.slice(0, 10) }) : null
+      ]),
+      el("p", { class: "commit-msg", text: c.message }),
+      c.file ? el("code", { class: "commit-file", text: c.file }) : null
+    ])))
+  ]) : el("div", { class: "hotspot-subgroup" }, [
+    el("div", { class: "hotspot-subhead" }, [
+      el("h4", { text: "Candidate Reverts" }),
+      el("span", { class: "heuristic-badge pass", text: "None detected" })
+    ]),
+    el("p", { class: "muted small", text: "No revert commits detected in recent history for these files." })
+  ]);
+
+  const fixes = archaeology.candidate_fixes || [];
+  const fixList = fixes.length ? el("div", { class: "hotspot-subgroup" }, [
+    el("div", { class: "hotspot-subhead" }, [
+      el("h4", { text: `Candidate Fixes (${fixes.length})` }),
+      el("span", { class: "heuristic-badge info", text: "Heuristic: commit message matches fix/bug" })
+    ]),
+    el("ul", { class: "commit-list" }, fixes.map((c) => el("li", { class: "commit-item fix-item" }, [
+      el("div", { class: "commit-head" }, [
+        link(c.url, c.sha),
+        el("span", { class: "commit-author", text: `@${c.author}` }),
+        c.date ? el("span", { class: "commit-date", text: c.date.slice(0, 10) }) : null
+      ]),
+      el("p", { class: "commit-msg", text: c.message }),
+      c.file ? el("code", { class: "commit-file", text: c.file }) : null
+    ])))
+  ]) : null;
+
+  const recent = (archaeology.recent_commits || []).slice(0, 5);
+  const recentList = recent.length ? el("div", { class: "hotspot-subgroup" }, [
+    el("h4", { text: "Recent Commits on Changed Files" }),
+    el("ul", { class: "commit-list" }, recent.map((c) => el("li", { class: "commit-item" }, [
+      el("div", { class: "commit-head" }, [
+        link(c.url, c.sha),
+        el("span", { class: "commit-author", text: `@${c.author}` }),
+        c.date ? el("span", { class: "commit-date", text: c.date.slice(0, 10) }) : null
+      ]),
+      el("p", { class: "commit-msg", text: c.message })
+    ])))
+  ]) : null;
+
+  return el("section", { class: "card hotspot-card" }, [
+    el("div", { class: "card-head" }, [
+      el("h3", { text: "Historical Hotspot Radar" }),
+      el("span", { class: "pill", text: `${archaeology.time_window_days || 90}d window` })
+    ]),
+    el("p", { class: "sub", text: "Commit forensics on modified paths to spot recurring churn or regression patterns." }),
+    el("dl", { class: "facts" }, [
+      el("dt", { text: "Recent commits" }), el("dd", { text: String(archaeology.total_commits || 0) }),
+      el("dt", { text: "Contributors" }), el("dd", { text: String(archaeology.distinct_contributors || 0) }),
+      el("dt", { text: "Files analyzed" }), el("dd", { text: String(archaeology.files_inspected?.length || 0) }),
+    ]),
+    churnList,
+    revertList,
+    fixList,
+    recentList
+  ]);
+}
+
+// ---------------------------------------------------------------- Confidence Ledger
+function renderConfidenceLedger(analysis, impact) {
+  const r = analysis;
+  return el("section", { class: "card" }, [
+    el("h3", { text: "Confidence & Evidence Ledger" }),
+    el("p", { class: "sub", text: "Audit trail of verification mechanisms vs unverified assumptions." }),
+    el("dl", { class: "ledger" }, [
+      ...r.ledger.groups.flatMap((g) => [
+        el("dt", {}, [el("span", { class: `src src-${g.source}`, text: SOURCE_LABEL[g.source] }), g.label]),
+        el("dd", { text: g.items.length ? plural(g.items.length, "finding") : "None" })
+      ]),
+      impact?.summary ? el("dt", {}, [el("span", { class: "src src-repository", text: "DETERMINISTIC_AST" }), "Import topology"]) : null,
+      impact?.summary ? el("dd", { text: `${impact.summary.changed_files} changed · ${impact.summary.direct_dependents} dependents · ${impact.summary.related_test_files} tests` }) : null,
+      r.archaeology?.total_commits !== undefined ? el("dt", {}, [el("span", { class: "src src-github", text: "GIT_LOG" }), "Commit archaeology"]) : null,
+      r.archaeology?.total_commits !== undefined ? el("dd", { text: `${r.archaeology.total_commits} commits across ${r.archaeology.distinct_contributors} authors` }) : null,
+    ]),
+    el("h4", { text: "Not verified by Sieve (read-only boundaries)" }),
+    el("ul", { class: "unknown" }, [
+      ...r.ledger.unknown.map((u) => el("li", { text: u })),
+      ...(impact?.limitations || []).map((l) => el("li", { text: l }))
+    ]),
+  ]);
+}
+
 // ---------------------------------------------------------------- home
 function renderHome() {
   run++;
@@ -272,26 +860,86 @@ async function inspectPr(ref) {
   }
   if (id !== run) return;
 
+  const topWorkbench = topologyWorkbench(fast.impact, (path) => {
+    if (path && atlas?.node(path)) atlas.select(path);
+  });
+  const atlasComponent = atlasPanel({
+    caption: "Every highlighted file is connected to the change by an import statement Sieve found. Click any file for the evidence.",
+    withImpact: true
+  });
+  atlasComponent.root.hidden = true;
+
+  const stageTabs = el("div", { class: "stage-switcher-bar" }, [
+    el("div", { class: "segmented stage-switcher", role: "tablist", "aria-label": "Workbench visualization mode" }, [
+      el("button", {
+        type: "button",
+        role: "tab",
+        "aria-selected": "true",
+        text: "PR Impact Topology (SVG)",
+        onclick: (e) => switchStageView("topology", e.currentTarget)
+      }),
+      el("button", {
+        type: "button",
+        role: "tab",
+        "aria-selected": "false",
+        text: "Repository Atlas (3D)",
+        onclick: (e) => switchStageView("atlas", e.currentTarget)
+      }),
+    ])
+  ]);
+
+  function switchStageView(mode, btn) {
+    stageTabs.querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", String(b === btn)));
+    if (mode === "topology") {
+      topWorkbench.root.hidden = false;
+      atlasComponent.root.hidden = true;
+    } else {
+      topWorkbench.root.hidden = true;
+      atlasComponent.root.hidden = false;
+      atlasComponent.ctl.fit(false);
+    }
+  }
+
   const parts = {
     head: el("div", { class: "review-head" }),
+    switcher: stageTabs,
+    workbench: topWorkbench.root,
+    atlas: atlasComponent.root,
     findings: el("div", { class: "findings" }),
     side: el("div", { class: "side" }),
   };
-  const panel = atlasPanel({ caption: "Every highlighted file is connected to the change by an import statement Sieve found. Click any file for the evidence.", withImpact: true });
-  fill(view, parts.head, panel.root, el("div", { class: "review-grid" }, [parts.findings, parts.side]));
+  fill(view, parts.head, parts.switcher, parts.workbench, parts.atlas, el("div", { class: "review-grid" }, [parts.findings, parts.side]));
 
-  const ctx = { analysis: fast, atlas: null, modelState: health.ollama && health.model_installed ? "pending" : "off" };
+  const ctx = {
+    analysis: fast,
+    atlas: null,
+    modelState: health.ollama && health.model_installed ? "pending" : "off"
+  };
+
   const paint = () => {
     renderHead(parts.head, ctx);
     renderFindings(parts.findings, ctx);
     renderSide(parts.side, ctx);
+    topWorkbench.update(ctx.analysis.impact);
   };
   paint();
 
-  panel.setLoading("Building the import graph from the base branch…");
+  atlasComponent.setLoading("Building the 3D import graph from the base branch…");
   const atlasJob = api(`/api/atlas?pr=${encodeURIComponent(ref)}`)
-    .then((d) => { if (id === run) { ctx.atlas = d; panel.setData(d); paint(); } })
-    .catch((e) => { if (id === run) { ctx.atlasError = e.message; panel.setError(`Couldn't build the atlas: ${e.message}`); paint(); } });
+    .then((d) => {
+      if (id === run) {
+        ctx.atlas = d;
+        atlasComponent.setData(d);
+        paint();
+      }
+    })
+    .catch((e) => {
+      if (id === run) {
+        ctx.atlasError = e.message;
+        atlasComponent.setError(`Couldn't build the 3D atlas: ${e.message}`);
+        paint();
+      }
+    });
 
   if (ctx.modelState === "pending") {
     const t0 = Date.now();
@@ -301,7 +949,10 @@ async function inspectPr(ref) {
     }, 1000);
     try {
       const full = await api(`/api/analyze?pr=${encodeURIComponent(ref)}&model=1`);
-      if (id === run) { ctx.analysis = full; ctx.modelState = full.model?.used ? "done" : "failed"; }
+      if (id === run) {
+        ctx.analysis = full;
+        ctx.modelState = full.model?.used ? "done" : "failed";
+      }
     } catch (e) {
       if (id === run) { ctx.modelState = "failed"; ctx.modelError = e.message; }
     } finally {
@@ -317,7 +968,15 @@ function renderHead(box, ctx) {
   const r = ctx.analysis, p = r.pr;
   const count = (s) => r.findings.filter((f) => f.status === s).length;
   const tally = [count("fail") && `${count("fail")} don't check out`, count("warn") && `${count("warn")} need attention`, count("pass") && `${count("pass")} verified`].filter(Boolean).join(" · ");
-  const imp = ctx.atlas?.impact;
+  const imp = ctx.analysis.impact || ctx.atlas?.impact;
+  const counts = imp?.counts || (imp?.summary ? {
+    changed: imp.summary.changed_files,
+    direct: imp.summary.direct_dependents,
+    indirect: 0,
+    tests: imp.summary.related_test_files
+  } : null);
+  const risks = imp?.risks || [];
+
   fill(box, 
     el("p", { class: "crumbs" }, [
       el("a", { href: `?repo=${encodeURIComponent(`${p.owner}/${p.repo}`)}`, text: `${p.owner}/${p.repo}` }), ` · pull request #${p.number} · `,
@@ -335,11 +994,11 @@ function renderHead(box, ctx) {
         el("h2", { text: VERDICT[r.verdict] }),
         el("p", { class: "tally", text: tally + (ctx.modelState === "pending" ? " · model check running" : "") }),
       ]),
-      imp ? el("dl", { class: "reach" }, [
-        el("dt", { text: "Changed" }), el("dd", { text: String(imp.counts.changed) }),
-        el("dt", { text: "Depend on it" }), el("dd", { text: String(imp.counts.direct + imp.counts.indirect) }),
-        el("dt", { text: "Related tests" }), el("dd", { text: String(imp.counts.tests) }),
-        el("dt", { text: "Risks" }), el("dd", { class: imp.risks.some((x) => x.level === "high") ? "hot" : "", text: String(imp.risks.length) }),
+      counts ? el("dl", { class: "reach" }, [
+        el("dt", { text: "Changed" }), el("dd", { text: String(counts.changed ?? 0) }),
+        el("dt", { text: "Depend on it" }), el("dd", { text: String((counts.direct ?? 0) + (counts.indirect ?? 0)) }),
+        el("dt", { text: "Related tests" }), el("dd", { text: String(counts.tests ?? 0) }),
+        el("dt", { text: "Risks" }), el("dd", { class: risks.some((x) => x.level === "high") ? "hot" : "", text: String(risks.length) }),
       ]) : null,
     ]),
   );
@@ -367,17 +1026,17 @@ function renderFindings(box, ctx) {
     if (!items.length && !pending) return null;
     return el("section", { class: "group" }, [el("h3", { class: "label", text: label }), el("ul", { class: "finding-list" }, [...items.map(findingItem), pending])]);
   });
-  const impact = ctx.atlas?.impact;
+  const impact = ctx.analysis.impact || ctx.atlas?.impact;
   const risks = impact?.risks?.length ? el("section", { class: "group" }, [
     el("h3", { class: "label", text: "Regression radar" }),
     el("ul", { class: "finding-list" }, impact.risks.map((k) => findingItem({ status: k.level === "high" ? "fail" : "warn", title: k.title, detail: "", evidence: k.evidence, source: k.source }))),
   ]) : null;
-  fill(box, [el("h2", { class: "section-title", text: "Findings" }), risks, ...groups])
+  fill(box, [el("h2", { class: "section-title", text: "Findings" }), risks, ...groups]);
 }
 
 function renderSide(box, ctx) {
-  const r = ctx.analysis, imp = ctx.atlas?.impact;
-  const plan = imp ? el("section", { class: "card" }, [
+  const r = ctx.analysis, imp = ctx.analysis.impact || ctx.atlas?.impact;
+  const plan = imp?.plan ? el("section", { class: "card" }, [
     el("h3", { text: "Verification plan" }),
     el("p", { class: "sub", text: "Recommended next steps. Sieve has not run any of them." }),
     el("ol", { class: "plan" }, imp.plan.map((s) => el("li", { class: `step ${s.action}` }, [
@@ -387,8 +1046,10 @@ function renderSide(box, ctx) {
     ]))),
   ]) : el("section", { class: "card" }, [el("h3", { text: "Verification plan" }), ctx.atlasError ? el("p", { class: "muted", text: ctx.atlasError }) : spinner("Waiting for the import graph…")]);
 
-  const affected = imp ? Object.entries(imp.marks).filter(([, m]) => m.role !== "dependency") : [];
-  const affectedList = imp ? el("section", { class: "card" }, [
+  const radar = renderHotspotRadar(ctx.analysis.archaeology);
+
+  const affected = imp?.marks ? Object.entries(imp.marks).filter(([, m]) => m.role !== "dependency") : [];
+  const affectedList = affected.length ? el("section", { class: "card" }, [
     el("h3", { text: "Affected files" }),
     el("p", { class: "sub", text: "Text version of the atlas overlay." }),
     el("ul", { class: "affected" }, affected.slice(0, 30).map(([path, m]) => el("li", {}, [
@@ -397,17 +1058,7 @@ function renderSide(box, ctx) {
     ]))),
   ]) : null;
 
-  const ledger = el("section", { class: "card" }, [
-    el("h3", { text: "Confidence ledger" }),
-    el("p", { class: "sub", text: "What Sieve knows, and how it knows it." }),
-    el("dl", { class: "ledger" }, [
-      ...r.ledger.groups.flatMap((g) => [el("dt", {}, [el("span", { class: `src src-${g.source}`, text: SOURCE_LABEL[g.source] }), g.label]), el("dd", { text: g.items.length ? plural(g.items.length, "finding") : "None" })]),
-      imp ? el("dt", {}, [el("span", { class: "src src-repository", text: "Repository" }), "Import graph"]) : null,
-      imp ? el("dd", { text: `${ctx.atlas.graph.fingerprint.import_edges} edges parsed from ${ctx.atlas.graph.fingerprint.source_files} files` }) : null,
-    ]),
-    el("h4", { text: "Not verified" }),
-    el("ul", { class: "unknown" }, r.ledger.unknown.map((u) => el("li", { text: u }))),
-  ]);
+  const ledger = renderConfidenceLedger(r, imp);
 
   const brief = briefText(ctx);
   const briefBtn = el("button", { type: "button", class: "btn ghost small", text: "Copy" });
@@ -419,11 +1070,14 @@ function renderSide(box, ctx) {
 
   fill(box, 
     plan,
+    radar,
     el("section", { class: "card" }, [el("div", { class: "card-head" }, [el("h3", { text: "Reviewer brief" }), briefBtn]),
       el("p", { class: "sub", text: "Hand-off summary for whoever reviews next." }), el("pre", { class: "doc", text: brief })]),
     el("section", { class: "card" }, [el("div", { class: "card-head" }, [el("h3", { text: "Reply to contributor" }), replyBtn]),
       el("p", { class: "sub", text: "Draft only. Sieve never posts to GitHub." }), el("pre", { class: "doc", text: r.comment })]),
-    ledger, modelCard, affectedList,
+    ledger,
+    modelCard,
+    affectedList,
   );
 }
 
@@ -440,7 +1094,8 @@ function modelBody(ctx) {
 }
 
 function briefText(ctx) {
-  const r = ctx.analysis, p = r.pr, imp = ctx.atlas?.impact;
+  const r = ctx.analysis, p = r.pr, imp = ctx.analysis.impact || ctx.atlas?.impact;
+  const arch = ctx.analysis.archaeology;
   const by = (s) => r.findings.filter((f) => f.status === s);
   const issue = r.findings.find((f) => f.check === "linked_issue");
   const lines = [
@@ -450,21 +1105,32 @@ function briefText(ctx) {
     "What it claims to address",
     `- ${issue ? issue.title : "No linked issue"}`,
   ];
-  if (imp) {
+  if (imp?.marks) {
     lines.push("", "What changed");
     for (const [path, m] of Object.entries(imp.marks)) if (["added", "modified", "removed", "renamed"].includes(m.role)) lines.push(`- ${path} (${m.role})`);
+  } else if (imp?.summary?.changed_files) {
+    lines.push("", `What changed (${imp.summary.changed_files} files)`);
+    imp.nodes.filter((n) => ["modified", "added", "removed", "renamed"].includes(n.role)).forEach((n) => lines.push(`- ${n.path} (${n.role})`));
+  }
+  if (arch?.total_commits) {
+    lines.push("", "Historical Context (Past 90 Days)");
+    lines.push(`- ${arch.total_commits} commits across ${arch.distinct_contributors} authors on inspected paths`);
+    if (arch.candidate_reverts?.length) lines.push(`- ⚠️ ${arch.candidate_reverts.length} candidate revert commit(s) detected`);
+    if (arch.candidate_fixes?.length) lines.push(`- ℹ️ ${arch.candidate_fixes.length} candidate bugfix commit(s) detected`);
   }
   if (by("fail").length) { lines.push("", "Doesn't check out"); by("fail").forEach((f) => lines.push(`- ${f.title} [${SOURCE_LABEL[f.source]}]`)); }
-  if (imp?.risks.length) { lines.push("", "Regression risks"); imp.risks.forEach((k) => lines.push(`- ${k.title}${k.evidence[0] ? `: ${k.evidence[0]}` : ""}`)); }
+  if (imp?.risks?.length) { lines.push("", "Regression risks"); imp.risks.forEach((k) => lines.push(`- ${k.title}${k.evidence[0] ? `: ${k.evidence[0]}` : ""}`)); }
   if (by("pass").length) { lines.push("", "Supported by evidence"); by("pass").forEach((f) => lines.push(`- ${f.title} [${SOURCE_LABEL[f.source]}]`)); }
-  if (imp) {
+  if (imp?.marks) {
     const dependents = Object.entries(imp.marks).filter(([, m]) => m.role === "direct" || m.role === "indirect");
     lines.push("", `May be affected (${dependents.length})`);
     dependents.slice(0, 8).forEach(([path, m]) => lines.push(`- ${path}: ${m.reason}`));
     lines.push("", "Related tests");
-    if (imp.tests.length) imp.tests.forEach((t) => lines.push(`- ${t.file}`)); else lines.push("- None found in the import graph");
-    lines.push("", "Next steps");
-    imp.plan.forEach((s, i) => lines.push(`${i + 1}. ${s.text}${s.command ? ` (\`${s.command}\`)` : ""}`));
+    if (imp.tests?.length) imp.tests.forEach((t) => lines.push(`- ${t.file}`)); else lines.push("- None found in the import graph");
+    if (imp.plan?.length) {
+      lines.push("", "Next steps");
+      imp.plan.forEach((s, i) => lines.push(`${i + 1}. ${s.text}${s.command ? ` (\`${s.command}\`)` : ""}`));
+    }
   }
   lines.push("", "Not verified");
   r.ledger.unknown.forEach((u) => lines.push(`- ${u}`));

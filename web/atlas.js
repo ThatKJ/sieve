@@ -496,6 +496,7 @@
     return {
       setData,
       reset,
+      fit,
       replay: startRipple,
       select: (id) => select(state.byId.get(id) || null),
       setMode(mode) { state.mode = mode; select(null); fit(false); startRipple(); },
