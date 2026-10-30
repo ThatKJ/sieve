@@ -526,7 +526,8 @@ window.SieveCommandCenter = (function () {
     workspaceContainer.append(sidebar, mainPane);
     appShell.append(workspaceContainer);
 
-    shadowRoot.replaceChildren(appShell);
+    const styleLink = el("link", { rel: "stylesheet", href: chrome.runtime.getURL("ui/workspace.css") });
+    shadowRoot.replaceChildren(styleLink, appShell);
   }
 
   return { render };

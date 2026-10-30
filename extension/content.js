@@ -154,7 +154,10 @@
         <div class="empty-title">Scanning pull requests & computing AST blast radius…</div>
       </div>
     `;
-    shadow.replaceChildren(skeleton);
+    const styleLink = document.createElement("link");
+    styleLink.rel = "stylesheet";
+    styleLink.href = chrome.runtime.getURL("ui/workspace.css");
+    shadow.replaceChildren(styleLink, skeleton);
 
     // Query health & queue in parallel via background worker
     let health = { connected: false, model: "unknown" };
@@ -218,10 +221,11 @@
     pill.type = "button";
     pill.className = "sieve-pr-pill";
     pill.style.cssText = `
-      display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; margin-left: 8px;
-      border-radius: 999px; background: #2f5bea; color: #ffffff; font-size: 12px; font-weight: 600;
-      border: 0; cursor: pointer; vertical-align: middle; font-family: ui-monospace, monospace;
-      box-shadow: 0 1px 3px rgba(47,91,234,0.3); transition: transform 120ms ease;
+      display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; margin-left: 10px;
+      border-radius: 999px; background: #171717; color: #FFFFFF; font-size: 11.5px; font-weight: 600;
+      border: 1px solid #171717; cursor: pointer; vertical-align: middle;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15); transition: transform 120ms ease;
     `;
     pill.innerHTML = `<span>⚡</span> Sieve Intelligence`;
 
@@ -252,6 +256,10 @@
   }
 
   function renderErrorState(shadow, loc, errMsg) {
+    const styleLink = document.createElement("link");
+    styleLink.rel = "stylesheet";
+    styleLink.href = chrome.runtime.getURL("ui/workspace.css");
+
     const errBox = document.createElement("div");
     errBox.className = "sieve-workspace";
     errBox.innerHTML = `
@@ -262,7 +270,7 @@
         <p style="font-size: 12px; color: #6e6d68; margin-top: 8px;">Run <code>python3 -m sieve --serve</code> on your machine to start the local engine.</p>
       </div>
     `;
-    shadow.replaceChildren(errBox);
+    shadow.replaceChildren(styleLink, errBox);
   }
 
   // Register page navigation listener

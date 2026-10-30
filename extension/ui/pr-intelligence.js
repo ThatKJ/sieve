@@ -22,6 +22,10 @@ window.SievePRIntelligence = (function () {
   }
 
   function openDrawer(shadowRoot, prAnalysis, onClose) {
+    if (!shadowRoot.querySelector('link[href*="workspace.css"]')) {
+      const link = el("link", { rel: "stylesheet", href: chrome.runtime.getURL("ui/workspace.css") });
+      shadowRoot.prepend(link);
+    }
     // Backdrop
     const backdrop = el("div", { class: "sieve-drawer-backdrop" });
     const drawer = el("aside", { class: "sieve-drawer", role: "dialog", "aria-modal": "true" });
