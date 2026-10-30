@@ -74,7 +74,7 @@
         sieveBtn.setAttribute("aria-selected", "true");
         nativeBtn.setAttribute("aria-selected", "false");
         chrome.storage.local.set({ activeViewMode: "sieve" });
-        onToggle("sieve");
+        onToggle("sieve", { intentional: true });
       };
 
       switcher.append(nativeBtn, sieveBtn);
@@ -115,18 +115,18 @@
       const shadow = getOrCreateShadowRoot(parentContainer, nativeList);
       console.log("[Sieve Workspace] Shadow root created/attached");
 
-      function applyView(mode) {
+      function applyView(mode, opts = {}) {
         if (mode === "sieve") {
           nativeList.style.display = "none";
           currentHost.style.display = "block";
-          loadCommandCenter(loc, shadow);
+          loadCommandCenter(loc, shadow, opts);
         } else {
           nativeList.style.display = "";
           currentHost.style.display = "none";
         }
       }
 
-      injectNativeSwitcher(subnav, (mode) => applyView(mode));
+      injectNativeSwitcher(subnav, (mode, opts) => applyView(mode, opts));
       console.log("[Sieve Workspace] injectNativeSwitcher called");
       applyView(activeViewMode);
       console.log("[Sieve Workspace] applyView completed");
@@ -135,8 +135,17 @@
     }
   }
 
-  async function loadCommandCenter(loc, shadow) {
-    // Show loading skeleton inside shadow DOM
+  // Replace the workspace content while keeping an open PR overlay alive (SPA navigation re-renders).
+  function replaceWorkspace(shadow, ...nodes) {
+    const keep = [shadow.querySelector(".sieve-act-overlay"), window.SievePRIntelligence.overlayNode(shadow)].filter(Boolean);
+    const styleLink = document.createElement("link");
+    styleLink.rel = "stylesheet";
+    styleLink.href = chrome.runtime.getURL("ui/workspace.css");
+    shadow.replaceChildren(styleLink, ...nodes, ...keep);
+  }
+
+  async function loadCommandCenter(loc, shadow, opts = {}) {
+    // Show loading skeleton inside shadow DOM (text via textContent: repo names come from the URL)
     const skeleton = document.createElement("div");
     skeleton.className = "sieve-workspace";
     skeleton.innerHTML = `
@@ -144,56 +153,98 @@
         <div class="repo-brand">
           <div class="repo-avatar"></div>
           <div class="repo-title-wrap">
-            <h1>${loc.owner} / ${loc.repo}</h1>
+            <h1></h1>
             <p class="repo-meta">Loading Sieve repository intelligence…</p>
           </div>
         </div>
       </div>
       <div class="empty-state">
-        <div class="empty-icon">⏳</div>
-        <div class="empty-title">Scanning pull requests & computing AST blast radius…</div>
+        <div class="empty-title">Scanning pull requests and mapping the import graph…</div>
       </div>
     `;
-    const styleLink = document.createElement("link");
-    styleLink.rel = "stylesheet";
-    styleLink.href = chrome.runtime.getURL("ui/workspace.css");
-    shadow.replaceChildren(styleLink, skeleton);
+    skeleton.querySelector("h1").textContent = `${loc.owner} / ${loc.repo}`;
+    replaceWorkspace(shadow, skeleton);
 
-    // Query health & queue in parallel via background worker
-    let health = { connected: false, model: "unknown" };
+    // The full activation sequence runs on intentional activation, first activation in this tab, or after a
+    // failed init, and never on top of an open PR investigation. Otherwise loading is silent.
+    const showActivation = window.SieveActivation.shouldShow(opts) && !window.SievePRIntelligence.isOpen(shadow);
+    const act = showActivation
+      ? window.SieveActivation.start(shadow, { onRetry: () => { chrome.runtime.sendMessage({ type: "CLEAR_CACHE" }); loadCommandCenter(loc, shadow, { intentional: true }); } })
+      : window.SieveActivation.silent;
+    const code = (t) => { const c = document.createElement("code"); c.textContent = t; return c; };
+
+    // 1. GitHub: we only get here once the adapter found the pull request list on this page
+    act.stage("github", "done", "Attached to this pull requests page");
+
+    // 2. Repository context, parsed from the URL
+    act.stage("repo", "active");
+    if (!loc.owner || !loc.repo) {
+      act.stage("repo", "error", "Not a repository page");
+      act.fail("Couldn't detect a repository", "Sieve works on a repository's pull requests page.");
+      return;
+    }
+    act.stage("repo", "done", loc.ref);
+
+    // 3. Engine health
+    act.stage("engine", "active");
+    let health = { connected: false, model: "offline" };
     try {
       const hRes = await chrome.runtime.sendMessage({ type: "CHECK_HEALTH" });
       if (hRes && hRes.ok) health = { connected: true, model: hRes.data.model };
-    } catch {
-      health = { connected: false, model: "offline" };
+      else throw new Error(hRes?.error || "No response from the engine");
+      act.stage("engine", "done", `${hRes.data.model}${hRes.data.ollama ? " · local model ready" : " · model offline, deterministic checks only"}`);
+    } catch (err) {
+      act.stage("engine", "error", "Not reachable");
+      act.fail("Sieve Engine isn't reachable", err.message, ["Start it with ", code("python3 -m sieve --serve"), " and press Retry."]);
+      renderErrorState(shadow, loc, err.message);
+      return;
     }
 
+    // 4. Repository data (the open pull request queue)
+    act.stage("data", "active");
+    let queue;
     try {
       const qRes = await chrome.runtime.sendMessage({ type: "GET_QUEUE", repo: loc.ref });
-      if (qRes && qRes.ok) {
-        window.SieveCommandCenter.render(shadow, loc, qRes.data, health, {
-          onInspectPR: (prNumber) => openPRDrawer(loc, prNumber, shadow)
-        });
-      } else {
-        renderErrorState(shadow, loc, qRes?.error || "Could not retrieve repository queue.");
-      }
+      if (!qRes || !qRes.ok) throw new Error(qRes?.error || "Could not retrieve repository queue.");
+      queue = qRes.data;
+      act.stage("data", "done", `${(queue.rows || []).length} open pull request${(queue.rows || []).length === 1 ? "" : "s"}`);
     } catch (err) {
+      act.stage("data", "error", "Unavailable");
+      act.fail("Repository information is unavailable", err.message, ["GitHub may be rate-limiting the engine. Setting ", code("GITHUB_TOKEN"), " raises the limit."]);
+      renderErrorState(shadow, loc, err.message);
+      return;
+    }
+
+    // 5. Workspace
+    act.stage("workspace", "active");
+    try {
+      // render() replaces the whole shadow content: carry the floating layers over to the new tree
+      const floating = [shadow.querySelector(".sieve-act-overlay"), window.SievePRIntelligence.overlayNode(shadow)].filter(Boolean);
+      window.SieveCommandCenter.render(shadow, loc, queue, health, {
+        onInspectPR: (prNumber) => openPRDrawer(loc, prNumber, shadow)
+      });
+      shadow.append(...floating);
+      act.stage("workspace", "done", "Command Center ready");
+      act.complete();
+    } catch (err) {
+      act.stage("workspace", "error", "Render failed");
+      act.fail("Couldn't prepare the workspace", err.message);
       renderErrorState(shadow, loc, err.message);
     }
   }
 
-  async function openPRDrawer(loc, prNumber, shadow) {
-    const prRef = `${loc.owner}/${loc.repo}#${prNumber}`;
-    try {
+  function analyzePR(prRef) {
+    return async () => {
       const res = await chrome.runtime.sendMessage({ type: "GET_ANALYZE", pr: prRef, useModel: false });
-      if (res && res.ok) {
-        window.SievePRIntelligence.openDrawer(shadow, res.data);
-      } else {
-        alert(`Sieve error: ${res?.error || "Could not analyze PR"}`);
-      }
-    } catch (err) {
-      alert(`Connection error: ${err.message}`);
-    }
+      if (!res || !res.ok) throw new Error(res?.error || "Could not analyze this pull request");
+      return res.data;
+    };
+  }
+
+  function openPRDrawer(loc, prNumber, shadow) {
+    const prRef = `${loc.owner}/${loc.repo}#${prNumber}`;
+    const trigger = shadow.activeElement; // the row/button the maintainer clicked
+    window.SievePRIntelligence.open(shadow, { prRef, trigger, load: analyzePR(prRef) });
   }
 
   function handlePrDetailPage(loc) {
@@ -232,45 +283,28 @@
     pill.onmouseover = () => { pill.style.transform = "scale(1.04)"; };
     pill.onmouseout = () => { pill.style.transform = "scale(1)"; };
 
-    pill.onclick = async () => {
-      pill.textContent = "Analyzing…";
+    pill.onclick = () => {
       const prRef = `${loc.owner}/${loc.repo}#${loc.number}`;
-      const parent = document.body;
-      const shadow = getOrCreateShadowRoot(parent);
-
-      try {
-        const res = await chrome.runtime.sendMessage({ type: "GET_ANALYZE", pr: prRef, useModel: false });
-        pill.innerHTML = `<span>⚡</span> Sieve Intelligence`;
-        if (res && res.ok) {
-          window.SievePRIntelligence.openDrawer(shadow, res.data);
-        } else {
-          alert(`Sieve error: ${res?.error || "Failed to analyze PR"}`);
-        }
-      } catch (err) {
-        pill.innerHTML = `<span>⚡</span> Sieve Intelligence`;
-        alert(`Connection error: ${err.message}`);
-      }
+      const shadow = getOrCreateShadowRoot(document.body);
+      currentHost.style.display = "block";
+      window.SievePRIntelligence.open(shadow, { prRef, trigger: pill, load: analyzePR(prRef) });
     };
 
     prHeader.append(pill);
   }
 
   function renderErrorState(shadow, loc, errMsg) {
-    const styleLink = document.createElement("link");
-    styleLink.rel = "stylesheet";
-    styleLink.href = chrome.runtime.getURL("ui/workspace.css");
-
     const errBox = document.createElement("div");
     errBox.className = "sieve-workspace";
     errBox.innerHTML = `
       <div class="empty-state">
-        <div class="empty-icon">⚠️</div>
         <div class="empty-title">Cannot connect to Sieve Intelligence Engine</div>
-        <div class="empty-sub">${errMsg}</div>
+        <div class="empty-sub"></div>
         <p style="font-size: 12px; color: #6e6d68; margin-top: 8px;">Run <code>python3 -m sieve --serve</code> on your machine to start the local engine.</p>
       </div>
     `;
-    shadow.replaceChildren(styleLink, errBox);
+    errBox.querySelector(".empty-sub").textContent = errMsg;
+    replaceWorkspace(shadow, errBox);
   }
 
   // Register page navigation listener

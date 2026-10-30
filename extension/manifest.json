@@ -38,6 +38,7 @@
         "ui/topology-svg.js",
         "ui/command-center.js",
         "ui/pr-intelligence.js",
+        "ui/activation.js",
         "content.js"
       ],
       "run_at": "document_end"
