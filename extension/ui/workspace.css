@@ -1168,7 +1168,7 @@ code, .mono { font-family: var(--sieve-font-mono); font-size: 0.88em; }
 @media (prefers-reduced-motion: reduce) {
   .sieve-ws-backdrop, .sieve-ws, .sieve-act-overlay, .sieve-act-panel, .sieve-act-progress span { transition: none; }
   .sieve-ws { transform: none; }
-  .sieve-act-mark .ring, .sieve-act-stage, .sieve-ws-spinner, .sieve-act-stage[data-state="active"] .sieve-act-dot { animation: none; }
+  .sieve-act-mark .ring.r1, .sieve-act-mark .ring.r2, .sieve-act-stage, .sieve-ws-spinner, .sieve-act-stage[data-state="active"] .sieve-act-dot { animation: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .sieve-ws-backdrop, .sieve-act-overlay, .sieve-ws-head, .sieve-act-panel { -webkit-backdrop-filter: none; backdrop-filter: none; }

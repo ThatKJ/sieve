@@ -45,6 +45,7 @@ window.SieveActivation = (function () {
     node.textContent = "";
     return new Promise((resolve) => {
       let i = 0;
+      signal.finish = () => { clearTimeout(signal.timer); node.textContent = text; resolve(); }; // cancel = settle now
       const tick = () => {
         if (signal.cancelled) { node.textContent = text; return resolve(); }
         node.textContent = text.slice(0, ++i);
@@ -123,11 +124,13 @@ window.SieveActivation = (function () {
       footer.querySelector("button")?.focus();
     }
 
+    let completing = false;
     async function complete() {
       if (finished) return;
+      completing = true;
       remember(true);
       signal.cancelled = true; // finish the headline instantly: the user never waits on typing
-      clearTimeout(signal.timer);
+      signal.finish?.();
       await headline;
       line1.textContent = "You're all set.";
       line2.textContent = "Your Sieve workspace is ready.";
@@ -138,14 +141,14 @@ window.SieveActivation = (function () {
     function stop() {
       finished = true;
       signal.cancelled = true;
-      clearTimeout(signal.timer);
+      signal.finish?.();
       document.removeEventListener("keydown", onKey, true);
     }
 
     function teardown() { stop(); overlay.remove(); }
 
     function dismiss() {
-      if (finished) return;
+      if (finished && !completing) return;
       stop();
       overlay.classList.remove("open");
       overlay.classList.add("closing");

@@ -4,6 +4,10 @@
 (function () {
   "use strict";
 
+  // A reloaded extension (or a second injection) must not double-mount observers and listeners.
+  if (window.__sieveContentLoaded) return;
+  window.__sieveContentLoaded = true;
+
   console.log("[Sieve Workspace] Content script initialized on:", window.location.href);
 
   let currentHost = null;
@@ -308,8 +312,14 @@
   }
 
   // Register page navigation listener
+  // GitHub fires turbo:load, turbo:render and pushState for one navigation: handle each URL once per burst.
+  let lastHandled = { href: "", at: 0 };
+  const NAV_DEDUPE_MS = 1000;
   const handleLocationChange = (loc) => {
     if (!loc) return;
+    const now = Date.now();
+    if (location.href === lastHandled.href && now - lastHandled.at < NAV_DEDUPE_MS) return;
+    lastHandled = { href: location.href, at: now };
     if (loc.type === "PULLS") {
       handlePullsPage(loc);
     } else if (loc.type === "PR_DETAIL") {

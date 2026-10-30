@@ -191,7 +191,7 @@ window.SievePRIntelligence = (function () {
       ["Verdict", VERDICT[d.verdict] || d.verdict], ["Diff", `+${p.additions ?? 0} −${p.deletions ?? 0}`],
       ["Changed files", String(sum.changed_files ?? p.changed_files ?? 0)], ["Depend on it", String(sum.direct_dependents ?? 0)],
       ["Related tests", String(sum.related_test_files ?? 0)], ["Checks", `${count("fail")} fail · ${count("warn")} warn · ${count("pass")} pass`],
-    ].flatMap(([k, v]) => [el("dt", { text: k }), el("dd", { text: v })]));
+    ].map(([k, v]) => el("div", {}, [el("dt", { text: k }), el("dd", { text: v })])));
 
     // change summary: the files the PR touches, with roles from the impact graph
     const changed = (impact.nodes || []).filter((n) => ["added", "modified", "removed", "renamed"].includes(n.role));
