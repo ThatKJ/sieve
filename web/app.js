@@ -137,17 +137,16 @@ function atlasPanel({ caption, withImpact }) {
   const legend = el("div", { class: "legend" });
   const stage = el("div", { class: "atlas-stage" }, [
     canvas,
-    el("div", { class: "atlas-controls glass" }, [modeBtns, search, el("div", { class: "row" }, [isolate, replay, reset, expand])]),
-    legend,
+    el("div", { class: "atlas-controls glass" }, [modeBtns, search, el("div", { class: "row" }, [isolate, replay, reset, expand]), legend,
+      el("p", { class: "atlas-hint", text: "Drag to orbit · Shift-drag to pan · Scroll to zoom · Arrow keys step through files" })]),
     inspector,
-    el("div", { class: "atlas-hint", "aria-hidden": "true", text: "Drag to orbit · Shift-drag to pan · Scroll to zoom · Click a file" }),
   ]);
   const root = el("section", { class: "atlas-panel", "aria-label": "Repository Atlas" }, [
     el("div", { class: "panel-head" }, [el("h2", { text: "Repository Atlas" }), el("p", { class: "sub", text: caption })]),
     stage,
   ]);
 
-  const ctl = window.Atlas.create(canvas, { onSelect: (n) => renderInspector(inspector, n) });
+  const ctl = window.Atlas.create(canvas, { onSelect: (n) => renderInspector(inspector, n), focusInset: () => (inspector.hidden || stage.clientWidth < 720 ? 0 : inspector.offsetWidth + 12) });
   modeBtns?.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;

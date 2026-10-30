@@ -209,7 +209,9 @@
         if (c.items.length >= 2 || state.clusters.length < 30) {
           const label = project(c.x, c.y + c.r + 12, 0);
           ctx.fillStyle = rgba(COLORS.ink, 0.6);
-          ctx.fillText(c.dir === "(root)" ? "/" : `${c.dir}/`, label.x, label.y);
+          // last segment only: nested paths like examples/complex/complex/commands collide otherwise
+          const parts = c.dir.split("/");
+          ctx.fillText(c.dir === "(root)" ? "/" : parts.length > 1 ? `…/${parts.at(-1)}/` : `${c.dir}/`, label.x, label.y);
         }
       }
     }
@@ -473,8 +475,11 @@
 
     function select(n) {
       state.selected = n || null;
-      if (n) state.goal = { ...state.cam, tx: n.x, ty: n.y, ox: 0, oy: 0, zoom: Math.max(state.cam.zoom, 1.6) };
       opts.onSelect?.(state.selected);
+      if (n) { // centre the file in the area the inspector leaves visible
+        const zoom = Math.max(state.cam.zoom, 1.6);
+        state.goal = { ...state.cam, tx: n.x, ty: n.y, ox: (opts.focusInset?.() || 0) / 2 / zoom, oy: 0, zoom };
+      }
       invalidate();
     }
 

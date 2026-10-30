@@ -124,7 +124,7 @@ main { width: min(1240px, calc(100% - 24px)); margin: 0 auto; padding: 28px 0 64
 .example code { font-size: 12px; color: var(--ink-3); }
 
 /* ---------------------------------------------------------------- atlas */
-.atlas-panel { margin-bottom: 26px; }
+.atlas-panel { margin-bottom: 26px; scroll-margin-top: 84px; }
 .panel-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
 .panel-head h2 { font-size: 15px; font-weight: 650; }
 .atlas-stage {
@@ -143,8 +143,7 @@ main { width: min(1240px, calc(100% - 24px)); margin: 0 auto; padding: 28px 0 64
 .segmented { display: grid; grid-template-columns: 1fr 1fr; padding: 2px; border-radius: 9px; background: rgba(29, 29, 31, 0.06); }
 .segmented button { height: 28px; border: 0; border-radius: 7px; background: transparent; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--ink-2); }
 .segmented button[aria-pressed="true"] { background: var(--solid); color: var(--ink); box-shadow: var(--shadow-card); }
-.legend { position: absolute; left: 14px; bottom: 12px; pointer-events: none; }
-.legend ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
+.legend ul { list-style: none; margin: 0; padding: 8px 2px 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 12px; color: var(--ink-2); border-top: 1px solid var(--hairline); }
 .legend li { display: flex; align-items: center; gap: 6px; }
 .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .swatch.changed { background: var(--signal); box-shadow: 0 0 0 3px var(--signal-soft); }
@@ -154,7 +153,7 @@ main { width: min(1240px, calc(100% - 24px)); margin: 0 auto; padding: 28px 0 64
 .swatch.test { border: 1.5px dashed var(--pass); }
 .swatch.file { background: var(--ink); }
 .swatch.height { width: 2px; height: 12px; border-radius: 1px; background: var(--ink-3); }
-.atlas-hint { position: absolute; right: 14px; bottom: 12px; font-size: 12px; color: var(--ink-3); pointer-events: none; }
+.atlas-hint { font-size: 12px; color: var(--ink-3); line-height: 1.4; }
 .atlas-loading { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(242, 241, 237, 0.6); }
 
 .inspector { position: absolute; top: 12px; right: 12px; bottom: 12px; width: 330px; border-radius: 14px; padding: 14px; overflow: auto; display: grid; gap: 12px; align-content: start; }
@@ -273,7 +272,8 @@ main { width: min(1240px, calc(100% - 24px)); margin: 0 auto; padding: 28px 0 64
   .display { font-size: 34px; }
   .pr-title { font-size: 27px; }
   .atlas-stage { height: 460px; }
-  .atlas-controls { width: auto; right: 12px; }
+  .atlas-controls { width: auto; right: 12px; padding: 8px; gap: 6px; }
+  .atlas-controls .legend, .atlas-controls .atlas-hint { display: none; } /* the "Affected files" list below carries the same information */
   .atlas-hint { display: none; }
   .inspector { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 55%; }
   .reach { grid-template-columns: repeat(2, auto); }
