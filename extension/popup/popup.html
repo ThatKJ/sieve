@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Sieve Workspace</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="pop-head">
+    <div class="pop-brand">
+      <span class="mesh" aria-hidden="true"></span>
+      <span class="brand-text">sieve workspace</span>
+    </div>
+    <span id="health-badge" class="badge">checking…</span>
+  </header>
+
+  <main class="pop-body">
+    <section class="section">
+      <h3 class="label">Engine Connection</h3>
+      <div class="row">
+        <span class="key">Endpoint</span>
+        <span class="val mono" id="engine-url">http://127.0.0.1:8787</span>
+      </div>
+      <div class="row">
+        <span class="key">Local Model</span>
+        <span class="val mono" id="model-name">…</span>
+      </div>
+      <div class="row">
+        <span class="key">Ollama Daemon</span>
+        <span class="val" id="ollama-status">…</span>
+      </div>
+      <div class="row">
+        <span class="key">GitHub Auth</span>
+        <span class="val" id="github-auth">…</span>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3 class="label">Preferences</h3>
+      <label class="toggle-row">
+        <span>Auto-open Sieve on PRs</span>
+        <input type="checkbox" id="auto-open-toggle" checked>
+      </label>
+    </section>
+
+    <div class="pop-actions">
+      <button type="button" class="btn" id="refresh-btn">Test Connection</button>
+      <button type="button" class="btn ghost" id="clear-cache-btn">Clear Cache</button>
+    </div>
+
+    <div id="offline-help" class="help-box" hidden>
+      <p><strong>Engine not reachable:</strong></p>
+      <code>python3 -m sieve --serve</code>
+    </div>
+  </main>
+
+  <footer class="pop-foot">
+    <span>Sieve Workspace · MIT</span>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
+
