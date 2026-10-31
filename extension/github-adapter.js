@@ -119,26 +119,18 @@
     });
   }
 
-  // Hook Turbo, PJAX, and PopState
+  // Navigation signals. Content scripts run in an isolated world, so patching history.pushState here
+  // would only wrap the extension's copy: GitHub's own pushState calls would never reach it.
+  // These are DOM-level events, which are delivered to the isolated world too. The content script
+  // coalesces bursts, re-reads the URL itself, and also watches the DOM, so a navigation that
+  // fires none of these is still picked up.
   document.addEventListener("turbo:load", notifyChange);
   document.addEventListener("turbo:render", notifyChange);
   document.addEventListener("pjax:end", notifyChange);
   window.addEventListener("popstate", notifyChange);
-
-  // Monkey-patch pushState & replaceState to capture client-side navigations
-  const origPushState = history.pushState;
-  history.pushState = function () {
-    const ret = origPushState.apply(this, arguments);
-    notifyChange();
-    return ret;
-  };
-
-  const origReplaceState = history.replaceState;
-  history.replaceState = function () {
-    const ret = origReplaceState.apply(this, arguments);
-    notifyChange();
-    return ret;
-  };
+  if (window.navigation && typeof window.navigation.addEventListener === "function") {
+    window.navigation.addEventListener("navigatesuccess", notifyChange); // Navigation API (Chrome 102+)
+  }
 
   window.SieveAdapter = {
     parseGitHubLocation,

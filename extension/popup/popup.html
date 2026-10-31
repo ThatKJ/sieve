@@ -15,6 +15,17 @@
   </header>
 
   <main class="pop-body">
+    <section class="section master">
+      <label class="master-row" for="master-toggle">
+        <span class="master-text">
+          <span class="master-title">Sieve</span>
+          <span class="master-state" id="master-state">…</span>
+        </span>
+        <input type="checkbox" role="switch" id="master-toggle" class="switch" aria-describedby="master-state">
+      </label>
+      <p class="master-help" id="master-help">Turns Sieve on or off in every GitHub tab. GitHub keeps working normally either way.</p>
+    </section>
+
     <section class="section">
       <h3 class="label">Engine Connection</h3>
       <div class="row">
@@ -43,10 +54,31 @@
       </div>
     </section>
 
+    <section class="section" aria-live="polite">
+      <h3 class="label">This Tab</h3>
+      <div class="row">
+        <span class="key">Content script</span>
+        <span class="val" id="tab-script">…</span>
+      </div>
+      <div class="row">
+        <span class="key">Page</span>
+        <span class="val" id="tab-route">…</span>
+      </div>
+      <div class="row">
+        <span class="key">Sieve mounted</span>
+        <span class="val" id="tab-mounted">…</span>
+      </div>
+      <div class="row">
+        <span class="key">Activation</span>
+        <span class="val" id="tab-activation">…</span>
+      </div>
+      <p class="tab-note" id="tab-note" hidden></p>
+    </section>
+
     <section class="section">
       <h3 class="label">Preferences</h3>
       <label class="toggle-row">
-        <span>Auto-open Sieve on PRs</span>
+        <span>Open Sieve by default on pull request lists</span>
         <input type="checkbox" id="auto-open-toggle" checked>
       </label>
     </section>

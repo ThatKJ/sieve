@@ -295,43 +295,61 @@ window.SievePRIntelligence = (function () {
 
       if (risks.length) {
         resultNodes.push(el("div", { class: "sieve-vi-section" }, [
-          el("h5", { class: "sieve-vi-section-title", text: "Potential Architectural Risks" }),
-          el("div", { class: "sieve-vi-list" }, risks.map((r) => el("div", { class: "sieve-vi-risk-card" }, [
-            el("div", { class: "sieve-vi-risk-header" }, [
-              el("strong", { text: r.title || "Risk" }),
-              el("div", { style: "display: flex; gap: 6px;" }, [
-                el("span", { class: `sieve-vi-pill ${r.severity || "medium"}`, text: r.severity || "medium" }),
-                el("span", { class: `sieve-vi-pill ${r.verified ? "verified" : "hypothesis"}`, text: r.verified ? "Verified in AST" : "Model Hypothesis" })
-              ])
-            ]),
-            el("p", { class: "sieve-vi-desc", text: r.explanation || "" }),
-            r.evidence ? el("code", { style: "font-size: 11px; color: var(--sieve-text-secondary);", text: `Citation: ${r.evidence}` }) : null
-          ])))
+          el("h5", { class: "sieve-vi-section-title", text: "Potential Architectural Risks (Model Hypotheses)" }),
+          el("div", { class: "sieve-vi-list" }, risks.map((r) => {
+            const evTier = r.evidence_verification || (r.verified ? "direct_pr_evidence" : "unverified_hypothesis");
+            const evLabel = evTier === "direct_pr_evidence"
+              ? "Verified PR Symbol"
+              : (evTier === "repo_symbol" ? "Repo Symbol" : "Unverified Citation");
+            const evPillClass = evTier === "direct_pr_evidence"
+              ? "verified"
+              : (evTier === "repo_symbol" ? "medium" : "hypothesis");
+            return el("div", { class: "sieve-vi-risk-card" }, [
+              el("div", { class: "sieve-vi-risk-header" }, [
+                el("strong", { text: r.title || "Risk" }),
+                el("div", { style: "display: flex; gap: 6px;" }, [
+                  el("span", { class: `sieve-vi-pill ${r.severity || "medium"}`, text: r.severity || "medium" }),
+                  el("span", { class: `sieve-vi-pill ${evPillClass}`, text: evLabel })
+                ])
+              ]),
+              el("p", { class: "sieve-vi-desc", text: r.explanation || "" }),
+              r.evidence ? el("code", { style: "font-size: 11px; color: var(--sieve-text-secondary);", text: `Citation: ${r.evidence} · Model Hypothesis` }) : null
+            ]);
+          }))
         ]));
       }
 
       if (tests.length) {
         resultNodes.push(el("div", { class: "sieve-vi-section" }, [
-          el("h5", { class: "sieve-vi-section-title", text: "Suggested Missing Test Scenarios" }),
-          el("div", { class: "sieve-vi-list" }, tests.map((t) => el("div", { class: "sieve-vi-test-card" }, [
-            el("div", { class: "sieve-vi-test-header" }, [
-              el("code", { text: t.target || "Module" }),
-              el("span", { class: "sieve-vi-pill low", text: t.test_type || "test" })
-            ]),
-            el("p", { class: "sieve-vi-desc", text: t.scenario || "" })
-          ])))
+          el("h5", { class: "sieve-vi-section-title", text: "Suggested Missing Test Scenarios (Model Hypotheses)" }),
+          el("div", { class: "sieve-vi-list" }, tests.map((t) => {
+            const evTier = t.evidence_verification || (t.verified ? "direct_pr_evidence" : "unverified_hypothesis");
+            const evLabel = evTier === "direct_pr_evidence"
+              ? "Verified PR Symbol"
+              : (evTier === "repo_symbol" ? "Repo Symbol" : "Unverified Citation");
+            return el("div", { class: "sieve-vi-test-card" }, [
+              el("div", { class: "sieve-vi-test-header" }, [
+                el("code", { text: t.target || "Module" }),
+                el("div", { style: "display: flex; gap: 6px;" }, [
+                  el("span", { class: "sieve-vi-pill low", text: t.test_type || "test" }),
+                  el("span", { class: "sieve-vi-pill hypothesis", text: evLabel })
+                ])
+              ]),
+              el("p", { class: "sieve-vi-desc", text: t.scenario || "" })
+            ]);
+          }))
         ]));
       }
 
-      resultNodes.push(el("div", { class: "sieve-vi-diag-bar", text: `Inference: ${diag.model_id || "gemma-4-26b-a4b-it"} · Image: ${diag.image_dimensions || "PNG"} (${diag.image_bytes || 0} bytes) · Grounding: ${grounding.status || "verified"} (${grounding.verified_symbols_cited || 0} symbols)` }));
+      resultNodes.push(el("div", { class: "sieve-vi-diag-bar", text: `Inference: ${diag.model_id || "gemma-4-26b-a4b-it"} · Image: ${diag.image_dimensions || "PNG"} (${diag.image_bytes || 0} bytes) · Grounding: ${grounding.status || "verified"} (${grounding.verified_evidence_citations?.length || 0} direct, ${grounding.repo_symbols_cited?.length || 0} repo symbols)` }));
 
-      const chatBox = buildChatBox(prRef, headSha);
+      const chatBox = buildChatBox(p, headSha);
       resultNodes.push(chatBox);
 
       contentBox.replaceChildren(el("div", { class: "sieve-vi-content" }, resultNodes));
     }
 
-    function buildChatBox(repoRef, headSha) {
+    function buildChatBox(pObj, headSha) {
       const box = el("div", { class: "sieve-vi-chat-box" });
       const historyEl = el("div", { class: "sieve-vi-history" });
 
@@ -387,7 +405,8 @@ window.SievePRIntelligence = (function () {
 
         chrome.runtime.sendMessage({
           type: "CHAT_GEMMA_VISUAL",
-          repo_ref: repoRef,
+          repo_ref: `${pObj.owner}/${pObj.repo}`,
+          pr_number: pObj.number,
           head_sha: headSha,
           message: q
         }, (res) => {

@@ -4,5 +4,9 @@ __pycache__/
 .env
 .cache/
 *.pdf
+!presentation/*.pdf
 .DS_Store
 .playwright-mcp/
+.vercel/
+.vercel
+.env*

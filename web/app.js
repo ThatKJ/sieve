@@ -63,15 +63,76 @@ const link = (href, text) => (safeGitHub(href) ? el("a", { href, target: "_blank
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 async function api(path) {
-  let res;
-  try {
-    res = await fetch(path);
-  } catch {
-    throw new Error("Can't reach the Sieve server. Is `python3 -m sieve --serve` still running?");
+  const isEnginePort = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") && (window.location.port === "8787" || window.location.port === "");
+
+  // On public hosting (e.g. Vercel) or static preview, serve demo snapshots directly without failed network calls:
+  if (!isEnginePort && window.SIEVE_DEMO_DATA) {
+    if (path === "/api/health") {
+      return {
+        model: "Local Engine",
+        ollama: false,
+        model_installed: false,
+        offline: true,
+        demo_mode: true,
+        github_auth: true,
+        gemma_configured: true,
+        gemma_model: "gemma-4-26b-a4b-it",
+      };
+    }
+    const decoded = decodeURIComponent(path);
+    if (decoded.includes("/api/atlas") && decoded.includes("ThatKJ/sieve-demo-target")) {
+      return window.SIEVE_DEMO_DATA.atlas;
+    }
+    if (decoded.includes("/api/analyze") && decoded.includes("ThatKJ/sieve-demo-target")) {
+      if (decoded.includes("#3") || decoded.includes("/3")) return window.SIEVE_DEMO_DATA.pr3;
+      if (decoded.includes("#4") || decoded.includes("/4")) return window.SIEVE_DEMO_DATA.pr4;
+      if (decoded.includes("#5") || decoded.includes("/5")) return window.SIEVE_DEMO_DATA.pr5;
+    }
+    throw new Error("Live inspection of arbitrary repositories requires the local Sieve engine. Start it locally with: python3 -m sieve --serve");
   }
-  const data = await res.json().catch(() => ({ error: `Server returned ${res.status}` }));
-  if (!res.ok) throw new Error(data.error || `Server returned ${res.status}`);
-  return data;
+
+  let res;
+  let liveError = null;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    res = await fetch(path, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      return await res.json();
+    }
+    const data = await res.json().catch(() => ({ error: `Server returned ${res.status}` }));
+    liveError = data.error || `Server returned ${res.status}`;
+  } catch (err) {
+    liveError = err.name === "AbortError" ? "Request timed out" : (err.message || "Failed to reach server");
+  }
+
+  // Fallback to static demo data on local server when engine is offline:
+  if (window.SIEVE_DEMO_DATA) {
+    if (path === "/api/health") {
+      return {
+        model: "Local Engine",
+        ollama: false,
+        model_installed: false,
+        offline: true,
+        demo_mode: true,
+        github_auth: true,
+        gemma_configured: true,
+        gemma_model: "gemma-4-26b-a4b-it",
+      };
+    }
+    const decoded = decodeURIComponent(path);
+    if (decoded.includes("/api/atlas") && decoded.includes("ThatKJ/sieve-demo-target")) {
+      return window.SIEVE_DEMO_DATA.atlas;
+    }
+    if (decoded.includes("/api/analyze") && decoded.includes("ThatKJ/sieve-demo-target")) {
+      if (decoded.includes("#3") || decoded.includes("/3")) return window.SIEVE_DEMO_DATA.pr3;
+      if (decoded.includes("#4") || decoded.includes("/4")) return window.SIEVE_DEMO_DATA.pr4;
+      if (decoded.includes("#5") || decoded.includes("/5")) return window.SIEVE_DEMO_DATA.pr5;
+    }
+  }
+
+  throw new Error(`Can't reach local Sieve server on 127.0.0.1:8787 (${liveError}). To inspect private or arbitrary repositories live, start the local engine: python3 -m sieve --serve`);
 }
 
 function show(view) {
@@ -106,11 +167,17 @@ async function copyText(btn, text) {
 async function loadHealth() {
   try { health = await api("/api/health"); } catch { /* server down: shown on first request */ }
   const ok = health.ollama && health.model_installed;
+  const isDemo = Boolean(health.demo_mode);
   fill($("status"), [
-    el("span", { class: `pill ${ok ? "ok" : "off"}`, title: ok ? "Ollama is running locally" : "Ollama not reachable: the relevance check is skipped, everything else still works" },
-      [el("span", { class: "dot", "aria-hidden": "true" }), `${health.model} · ${ok ? "local" : "offline"}`]),
-    health.offline ? el("span", { class: "pill", title: "Serving cached GitHub data (SIEVE_OFFLINE=1)" }, [el("span", { class: "dot", "aria-hidden": "true" }), "cached"]) : null,
-  ])
+    el("span", {
+      class: `pill ${ok ? "ok" : (isDemo ? "demo" : "off")}`,
+      title: isDemo ? "Viewing static demo snapshot on Vercel" : (ok ? "Ollama & Sieve running locally" : "Local engine offline: connect python3 -m sieve --serve for live PR inspection")
+    }, [
+      el("span", { class: "dot", "aria-hidden": "true" }),
+      isDemo ? "demo mode · public" : `${health.model} · ${ok ? "local" : "offline"}`
+    ]),
+    health.offline && !isDemo ? el("span", { class: "pill", title: "Serving cached GitHub data (SIEVE_OFFLINE=1)" }, [el("span", { class: "dot", "aria-hidden": "true" }), "cached"]) : null,
+  ]);
 }
 
 // ---------------------------------------------------------------- routing
@@ -812,36 +879,19 @@ function renderConfidenceLedger(analysis, impact) {
 function renderHome() {
   run++;
   show("home");
-  const panel = atlasPanel({ caption: `${DEMO_REPO}: a real repository, parsed live. Pick a pull request to see what it touches.`, withImpact: false });
-  const examples = el("ol", { class: "examples" }, EXAMPLES.map((ex) => el("li", {}, [
-    el("button", { type: "button", class: "example", onclick: () => start(ex.ref) }, [
-      el("span", { class: "ex-title", text: ex.title }),
-      el("span", { class: "ex-note", text: ex.note }),
-      el("code", { text: ex.ref }),
-    ]),
-  ])));
-  fill($("home"), 
-    el("div", { class: "home-intro" }, [
-      el("h1", { class: "display", text: "See what a pull request really changes." }),
-      el("p", { class: "lede", text: "Sieve maps your repository's imports, overlays a pull request's reach, and checks every claim it makes against the code: linked issue, tests, files, imports, your CONTRIBUTING rules. Evidence is labelled by source. Nothing is posted to GitHub." }),
-    ]),
-    el("div", { class: "home-grid" }, [
-      panel.root,
-      el("aside", { class: "home-side" }, [
-        el("h2", { class: "label", text: "Inspect a pull request" }),
-        examples,
-        el("h2", { class: "label", text: "Or a whole repository" }),
-        el("button", { type: "button", class: "example", onclick: () => start(DEMO_REPO) }, [
-          el("span", { class: "ex-title", text: "Rank every open pull request" }), el("code", { text: DEMO_REPO })]),
-        el("p", { class: "muted small", text: `Relevance judgments come from ${health.model} running locally through Ollama and are always labelled as model opinion.` }),
-      ]),
-    ]),
-  );
-  const id = run;
-  panel.setLoading("Downloading and parsing the repository…");
-  api(`/api/atlas?repo=${encodeURIComponent(DEMO_REPO)}`)
-    .then((d) => { if (id === run) panel.setData(d); })
-    .catch((e) => { if (id === run) panel.setError(e.message); });
+  const mount = $("demo-atlas-mount");
+  if (mount && !mount.hasChildNodes()) {
+    const panel = atlasPanel({
+      caption: `${DEMO_REPO}: interactive repository import graph parsed deterministically from Python AST.`,
+      withImpact: false
+    });
+    fill(mount, panel.root);
+    const id = run;
+    panel.setLoading("Loading repository topology graph…");
+    api(`/api/atlas?repo=${encodeURIComponent(DEMO_REPO)}`)
+      .then((d) => { if (id === run) panel.setData(d); })
+      .catch((e) => { if (id === run) panel.setError(e.message); });
+  }
 }
 
 // ---------------------------------------------------------------- PR review
@@ -978,9 +1028,21 @@ function renderHead(box, ctx) {
   const risks = imp?.risks || [];
 
   fill(box, 
-    el("p", { class: "crumbs" }, [
-      el("a", { href: `?repo=${encodeURIComponent(`${p.owner}/${p.repo}`)}`, text: `${p.owner}/${p.repo}` }), ` · pull request #${p.number} · `,
-      link(p.url, "Open on GitHub ↗"),
+    el("div", { class: "review-nav-bar", style: "margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;" }, [
+      el("button", {
+        type: "button",
+        class: "btn ghost small",
+        text: "← Back to Overview",
+        onclick: () => {
+          $("target").value = "";
+          history.pushState(null, "", location.pathname);
+          renderHome();
+        }
+      }),
+      el("p", { class: "crumbs", style: "margin: 0;" }, [
+        el("a", { href: `?repo=${encodeURIComponent(`${p.owner}/${p.repo}`)}`, text: `${p.owner}/${p.repo}` }), ` · pull request #${p.number} · `,
+        link(p.url, "Open on GitHub ↗"),
+      ])
     ]),
     el("h1", { class: "pr-title", text: p.title }),
     el("p", { class: "meta" }, [
@@ -1202,6 +1264,18 @@ function renderQueue(box, q) {
 }
 
 // ---------------------------------------------------------------- boot
+window.start = start;
+
+document.querySelectorAll(".nav-link").forEach((link) => {
+  link.addEventListener("click", () => {
+    if (!$("review").hidden || !$("repo").hidden) {
+      show("home");
+      $("target").value = "";
+    }
+    document.querySelectorAll(".nav-link").forEach((l) => l.classList.toggle("active", l === link));
+  });
+});
+
 $("form").addEventListener("submit", (e) => { e.preventDefault(); start($("target").value); });
 window.addEventListener("popstate", fromUrl);
 loadHealth().then(fromUrl);

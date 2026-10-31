@@ -43,7 +43,7 @@ GitHub pull request
 
 ### Implemented, verified manually or partially
 
-- **Chrome extension (Manifest V3):** command center on `/pulls`, Native/Sieve view switcher, centered PR intelligence workspace, an activation sequence driven by real initialization state, and a popup with connection status. Automated checks cover the manifest and JavaScript syntax; the UI was exercised against the live engine through a dev harness and on real GitHub, but there is no automated browser test suite yet.
+- **Chrome extension (Manifest V3):** command center on `/pulls`, Native/Sieve view switcher, centered PR intelligence workspace, an activation sequence driven by real initialization state, and a popup with connection status. Automated checks cover the manifest, JavaScript syntax, and 15 component tests covering route detection, lifecycle normalization, custom collections, blast-radius sorting, and activation contracts. The UI was exercised against the live engine through a dev harness and on real GitHub.
 - **Web app** served by the engine at `http://127.0.0.1:8787`.
 
 ### In progress

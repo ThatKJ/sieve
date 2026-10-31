@@ -10,7 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-from . import atlas, github, llm
+from . import atlas, github, lifecycle, llm
 
 # ---------------------------------------------------------------- findings
 
@@ -692,4 +692,53 @@ def queue(owner, repo, limit=15):
                     row["duplicate_fixes"].append({"with_pr": other_pr, "issue": iss})
 
     rows.sort(key=lambda r: r.get("score", -1), reverse=True)
-    return rows
+    return attach_lifecycle(owner, repo, rows)
+
+
+class QueueRows(list):
+    """The queue's rows, plus `meta` describing where the lifecycle data came from and how fresh it is."""
+    meta = {}
+
+
+def attach_lifecycle(owner, repo, rows):
+    """Give every open PR a lifecycle classification; add rows for open PRs the deep pass didn't cover.
+
+    One GraphQL query per 50 PRs supplies reviews, review requests, merge state and checks. Without a
+    token (or if GraphQL fails) it falls back to the REST list, and every classification says which
+    data was missing instead of guessing.
+    """
+    by_number = {r["number"]: r for r in rows if "number" in r}
+    meta = {"source": "graphql", "error": None}
+    try:
+        nodes, gmeta = github.pull_lifecycle(owner, repo)
+        prs = [lifecycle.normalize_graphql_pr(n) for n in nodes]
+        meta.update(gmeta)
+    except github.GitHubError as e:
+        meta.update({"source": "rest", "error": str(e), "viewer": None})
+        try:
+            rest = github.open_pulls(owner, repo, 100)
+        except github.GitHubError:
+            rest = []
+        prs = [lifecycle.normalize_rest_pr(p) for p in rest]
+        meta.update({"total_count": len(prs), "fetched_at": time.time(), "truncated": len(prs) >= 100})
+    for p in prs:
+        row = by_number.get(p["number"])
+        if row is None:  # open PR outside the deep-analysis window: lifecycle only, no Sieve score
+            row = {"number": p["number"], "title": p["title"], "url": p["url"], "author": p["author"] or "unknown",
+                   "author_avatar": "", "score": None, "verdict": None, "category": "not_analyzed", "turn_status": None,
+                   "is_bot": bool(p["author"] and p["author"].endswith("[bot]")), "top_issues": [], "draft": p["draft"],
+                   "created_at": p["created_at"], "collisions": [], "duplicate_fixes": [], "analyzed": False}
+            rows.append(row)
+            by_number[p["number"]] = row
+        row.setdefault("analyzed", True)
+        row["labels"] = p["labels"]
+        row["requested_reviewers"] = p["requested_reviewers"] + [f"team:{t}" for t in p["requested_teams"]]
+        row["reviewers"] = sorted({r["author"] for r in (p["reviews"] or []) if r.get("author")})
+        row["checks"] = p["checks"]
+        row["mergeable"] = p["mergeable"]
+        row["lifecycle"] = lifecycle.classify(p, viewer=meta.get("viewer"))
+    out = QueueRows(rows)
+    meta["summary"] = lifecycle.summarize([r["lifecycle"] for r in rows if "lifecycle" in r])
+    meta["stale_days"] = lifecycle.DEFAULT_STALE_DAYS
+    out.meta = meta
+    return out

@@ -1,6 +1,7 @@
-"""Read-only GitHub REST client with an on-disk cache.
+"""GitHub REST/GraphQL client with an on-disk cache for reads.
 
-Sieve never writes to GitHub: every request here is a GET.
+Reads are cached GETs (and GraphQL queries). The only writes are `write()` and `graphql_mutation()`,
+which are never cached and are called exclusively from `sieve.actions` after a human confirms.
 """
 import base64
 import hashlib
@@ -109,6 +110,142 @@ def tree_paths(owner, repo, sha):
 def file_text(owner, repo, path, ref):
     data = get(f"/repos/{owner}/{repo}/contents/{urllib.parse.quote(path)}", {"ref": ref})
     return base64.b64decode(data.get("content", "")).decode("utf-8", "replace")
+
+
+GRAPHQL_TTL = 60  # seconds: lifecycle data (reviews, checks) changes faster than repository contents
+LIFECYCLE_QUERY = """
+query($owner: String!, $repo: String!, $after: String) {
+  viewer { login }
+  repository(owner: $owner, name: $repo) {
+    pullRequests(states: OPEN, first: 50, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      totalCount
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number title url isDraft createdAt mergeable reviewDecision
+        author { login }
+        labels(first: 10) { nodes { name } }
+        reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { slug } } } }
+        latestOpinionatedReviews(first: 20) { nodes { author { login } state submittedAt } }
+        commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state
+          contexts(first: 50) { nodes { ... on CheckRun { name conclusion } ... on StatusContext { context state } } } } } } }
+      }
+    }
+  }
+}"""
+
+
+def graphql(query, variables, ttl=GRAPHQL_TTL):
+    """Run a read-only GraphQL query. Returns (data, fetched_at_epoch).
+
+    GraphQL is POST-only, but this sends queries, never mutations. Cached like GET responses, and the
+    cache file's mtime is returned as fetched_at so callers never present cached data as fresh.
+    """
+    if not _get_token():
+        raise GitHubError("GitHub's GraphQL API needs a token: set GITHUB_TOKEN or run `gh auth login`.", status=401)
+    key = hashlib.sha256(json.dumps([query, variables], sort_keys=True).encode()).hexdigest()[:24]
+    cache_file = CACHE_DIR / f"graphql-{key}.json"
+    if cache_file.exists() and (OFFLINE or time.time() - cache_file.stat().st_mtime < ttl):
+        return json.loads(cache_file.read_text()), cache_file.stat().st_mtime
+    if OFFLINE:
+        raise GitHubError("Offline mode and no cached lifecycle data", status=503)
+    req = urllib.request.Request(f"{API}/graphql", data=json.dumps({"query": query, "variables": variables}).encode(),
+                                 method="POST", headers={"User-Agent": "sieve-pr-intake", "Content-Type": "application/json",
+                                                         "Authorization": f"Bearer {_get_token()}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30, context=SSL_CONTEXT) as resp:
+            payload = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 429):
+            raise GitHubError("GitHub rate limit hit on the GraphQL API.", status=429) from None
+        raise GitHubError(f"GitHub GraphQL returned HTTP {e.code}", status=502) from None
+    except urllib.error.URLError as e:
+        raise GitHubError(f"Could not reach GitHub ({e.reason}).", status=503) from None
+    if payload.get("errors") and not payload.get("data"):
+        raise GitHubError("GitHub GraphQL error: " + "; ".join(err.get("message", "?") for err in payload["errors"][:3]), status=502)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text(json.dumps(payload["data"]))
+    return payload["data"], time.time()
+
+
+def pull_lifecycle(owner, repo, max_prs=100):
+    """Open PRs with reviews, review requests, merge state and checks: one query per 50 PRs (no N+1).
+
+    Returns (nodes, meta) where meta has viewer, total_count, fetched_at and whether the list is truncated.
+    """
+    nodes, after, fetched = [], None, []
+    viewer = total = None
+    while True:
+        data, at = graphql(LIFECYCLE_QUERY, {"owner": owner, "repo": repo, "after": after})
+        fetched.append(at)
+        viewer = (data.get("viewer") or {}).get("login")
+        repo_data = data.get("repository")
+        if repo_data is None:
+            raise GitHubError(f"Repository {owner}/{repo} not found or not accessible with this token", status=404)
+        prs = repo_data["pullRequests"]
+        total = prs["totalCount"]
+        nodes += [n for n in prs["nodes"] if n]
+        page = prs["pageInfo"]
+        if not page["hasNextPage"] or len(nodes) >= max_prs:
+            break
+        after = page["endCursor"]
+    return nodes[:max_prs], {"viewer": viewer, "total_count": total, "fetched_at": min(fetched), "truncated": total > len(nodes[:max_prs])}
+
+
+def _write_error(e):
+    """Map a GitHub HTTPError on a write to a GitHubError carrying GitHub's own reason (never headers or the token)."""
+    try:
+        payload = json.loads(e.read() or b"{}")
+    except (ValueError, OSError):
+        payload = {}
+    reason = str(payload.get("message") or f"HTTP {e.code}")[:300]
+    details = "; ".join(str(x.get("message") or x.get("code") or "") for x in (payload.get("errors") or [])[:3]
+                        if isinstance(x, dict))
+    if details:
+        reason += f" ({details[:300]})"
+    if e.code == 401:
+        return GitHubError("GitHub rejected the token (expired or revoked). Run `gh auth login` or update GITHUB_TOKEN.", status=401)
+    if e.code == 429 or (e.code == 403 and (e.headers.get("X-RateLimit-Remaining") == "0" or "rate limit" in reason.lower())):
+        return GitHubError("GitHub rate limit hit. Nothing was changed; try again later.", status=429)
+    if e.code == 403:
+        return GitHubError(f"GitHub denied this action for your token: {reason}", status=403)
+    if e.code == 404:
+        return GitHubError("Not found on GitHub, or this token cannot see the repository.", status=404)
+    if e.code in (405, 409, 422):
+        return GitHubError(f"GitHub refused: {reason}", status=409 if e.code != 422 else 422)
+    return GitHubError(f"GitHub returned HTTP {e.code}: {reason}", status=502)
+
+
+def write(method, path, body=None):
+    """Send one uncached write (POST/PUT/PATCH/DELETE) and return GitHub's parsed JSON response (or {})."""
+    if method not in ("POST", "PUT", "PATCH", "DELETE"):
+        raise ValueError(f"Unsupported write method {method}")
+    if OFFLINE:
+        raise GitHubError("Offline mode: GitHub writes are unavailable.", status=503)
+    if not _get_token():
+        raise GitHubError("No GitHub token: set GITHUB_TOKEN or run `gh auth login`.", status=401)
+    req = urllib.request.Request(API + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "sieve-pr-intake",
+                                          "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json",
+                                          "Authorization": f"Bearer {_get_token()}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30, context=SSL_CONTEXT) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as e:
+        raise _write_error(e) from None
+    except urllib.error.URLError as e:
+        # The request may or may not have reached GitHub; callers re-read state instead of assuming either.
+        raise GitHubError(f"Could not reach GitHub ({e.reason}). The action may not have been applied; refresh to check.", status=503) from None
+    return json.loads(raw) if raw else {}
+
+
+def graphql_mutation(query, variables):
+    """Run one uncached GraphQL mutation (used for draft/ready, which REST cannot do)."""
+    if not query.lstrip().startswith("mutation"):
+        raise ValueError("graphql_mutation only sends mutations")
+    payload = write("POST", "/graphql", {"query": query, "variables": variables})
+    if payload.get("errors"):
+        raise GitHubError("GitHub refused: " + "; ".join(str(err.get("message", "?")) for err in payload["errors"][:3]), status=409)
+    return payload.get("data") or {}
 
 
 MAX_TARBALL_BYTES = 80 * 1024 * 1024

@@ -141,3 +141,4 @@ python3 -m pytest
 4. Scroll to **Visual Architecture Intelligence**.
 5. Click **Analyze Architecture with Gemma 4**.
 6. Review the rasterized topology preview, architectural implications, grounded risks, and interactive follow-up Q&A!
+

@@ -7,9 +7,9 @@ window.SieveActivation = (function () {
 
   const STAGES = [
     ["github", "Connecting to GitHub"],
-    ["repo", "Detecting repository context"],
-    ["engine", "Connecting to Sieve Engine"],
-    ["data", "Loading repository information"],
+    ["repo", "Detecting repository"],
+    ["engine", "Connecting to local Sieve Engine"],
+    ["data", "Loading repository context"],
     ["workspace", "Preparing your workspace"],
   ];
   const SESSION_KEY = "sieve-workspace-activated";
@@ -78,6 +78,7 @@ window.SieveActivation = (function () {
     const overlay = el("div", { class: "sieve-act-overlay" }, [panel]);
     const rows = new Map();
     let finished = false;
+    let gone = false; // overlay stopped (dismissed, failed-and-retried, or completed)
 
     const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); dismiss(); } };
     document.addEventListener("keydown", onKey, true);
@@ -124,14 +125,14 @@ window.SieveActivation = (function () {
       footer.querySelector("button")?.focus();
     }
 
-    let completing = false;
     async function complete() {
       if (finished) return;
-      completing = true;
       remember(true);
-      signal.cancelled = true; // finish the headline instantly: the user never waits on typing
-      signal.finish?.();
+      // Let the welcome line finish (about 2 s, instant with reduced motion) so it is actually seen.
+      // The steps above already show real, completed state; this only paces the closing message.
       await headline;
+      await new Promise((r) => setTimeout(r, 700)); // let the finished line be read (a pause, not motion)
+      if (gone) return; // dismissed or Sieve disabled while the line was finishing
       line1.textContent = "You're all set.";
       line2.textContent = "Your Sieve workspace is ready.";
       panel.classList.add("done");
@@ -139,6 +140,7 @@ window.SieveActivation = (function () {
     }
 
     function stop() {
+      gone = true;
       finished = true;
       signal.cancelled = true;
       signal.finish?.();
@@ -148,7 +150,7 @@ window.SieveActivation = (function () {
     function teardown() { stop(); overlay.remove(); }
 
     function dismiss() {
-      if (finished && !completing) return;
+      if (gone) return;
       stop();
       overlay.classList.remove("open");
       overlay.classList.add("closing");

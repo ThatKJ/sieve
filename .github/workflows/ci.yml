@@ -38,6 +38,8 @@ jobs:
           node-version: "20"
       - name: Manifest is valid JSON
         run: python3 -m json.tool extension/manifest.json > /dev/null
+      - name: Extension unit tests
+        run: node --test extension/test/*.test.mjs
       - name: JavaScript syntax
         run: |
           set -e

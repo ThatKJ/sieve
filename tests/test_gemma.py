@@ -132,22 +132,28 @@ class TestGemmaMultimodalInference(unittest.TestCase):
     def test_successful_multimodal_analysis(self, mock_urlopen):
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps({
-            "output": [
+            "candidates": [
                 {
-                    "type": "text",
-                    "text": json.dumps({
-                        "summary": "Pull request modifies core dependency resolution.",
-                        "architectural_implications": ["sieve/server.py is tightly coupled."],
-                        "potential_risks": [
-                            {"title": "Broken imports", "severity": "medium", "evidence": "sieve/server.py", "explanation": "Dependent on atlas"}
-                        ],
-                        "missing_test_scenarios": [
-                            {"test_type": "unit", "target": "tests/test_atlas.py", "scenario": "Test edge cycle"}
-                        ],
-                        "blind_spots": ["Dynamic getattr calls"],
-                        "recommended_investigations": ["Check CLI invocation"],
-                        "limitations": ["Static AST only"]
-                    })
+                    "content": {
+                        "parts": [
+                            {"text": "thinking...", "thought": True},
+                            {
+                                "text": json.dumps({
+                                    "summary": "Pull request modifies core dependency resolution.",
+                                    "architectural_implications": ["sieve/server.py is tightly coupled."],
+                                    "potential_risks": [
+                                        {"title": "Broken imports", "severity": "medium", "evidence": "sieve/server.py", "explanation": "Dependent on atlas"}
+                                    ],
+                                    "missing_test_scenarios": [
+                                        {"test_type": "unit", "target": "tests/test_atlas.py", "scenario": "Test edge cycle"}
+                                    ],
+                                    "blind_spots": ["Dynamic getattr calls"],
+                                    "recommended_investigations": ["Check CLI invocation"],
+                                    "limitations": ["Static AST only"]
+                                })
+                            }
+                        ]
+                    }
                 }
             ]
         }).encode("utf-8")
@@ -186,13 +192,23 @@ class TestGemmaBoundChat(unittest.TestCase):
     def test_bound_chat_session(self, mock_urlopen):
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps({
-            "output": [{"type": "text", "text": "Run tests/test_atlas.py first."}]
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {"text": "thinking...", "thought": True},
+                            {"text": "Run tests/test_atlas.py first."}
+                        ]
+                    }
+                }
+            ]
         }).encode("utf-8")
         mock_urlopen.return_value.__enter__.return_value = mock_response
 
-        session_key = "ThatKJ/sieve#1@head123"
+        session_key = gemma.make_session_key("ThatKJ/sieve", 1, "head123")
         gemma._CHAT_SESSIONS[session_key] = {
             "repo_ref": "ThatKJ/sieve#1",
+            "pr_number": 1,
             "head_sha": "head123",
             "evidence": {
                 "changed_files": [{"path": "sieve/atlas.py"}],
@@ -204,7 +220,8 @@ class TestGemmaBoundChat(unittest.TestCase):
         }
 
         chat_res = gemma.chat_visual_architecture(
-            repo_ref="ThatKJ/sieve#1",
+            repo_ref="ThatKJ/sieve",
+            pr_number=1,
             head_sha="head123",
             user_message="Which test should I run first?",
             api_key="test_key"
@@ -215,7 +232,8 @@ class TestGemmaBoundChat(unittest.TestCase):
     def test_uninitialized_or_stale_pr_chat_rejected(self):
         with self.assertRaises(ValueError) as ctx:
             gemma.chat_visual_architecture(
-                repo_ref="ThatKJ/sieve#999",
+                repo_ref="ThatKJ/sieve",
+                pr_number=999,
                 head_sha="different_sha",
                 user_message="Hello",
                 api_key="test_key"
@@ -225,3 +243,4 @@ class TestGemmaBoundChat(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

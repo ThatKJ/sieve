@@ -1,9 +1,12 @@
-// Sieve Workspace — Maintainer Command Center Component
-// Monochromatic Luxury Design Standard (media_1793397476309_ebda5710.jpg)
-// Injected into GitHub pull requests page inside Shadow DOM.
+// Sieve Workspace — Maintainer Command Center
+// Answers: what needs my attention, who needs to act, what should happen next, and why.
+// Every status comes from the engine's deterministic lifecycle classifier (sieve/lifecycle.py) and
+// carries its evidence. Read-only: nothing here writes to GitHub.
 
 window.SieveCommandCenter = (function () {
   "use strict";
+
+  let syncTimer = 0; // one "Synced N min ago" ticker per page, replaced on every render
 
   function el(tag, attrs = {}, children = []) {
     const node = document.createElement(tag);
@@ -21,558 +24,496 @@ window.SieveCommandCenter = (function () {
     return node;
   }
 
-  function render(shadowRoot, repoContext, queueData, engineStatus, callbacks = {}) {
-    const rows = (queueData && queueData.rows) || [];
-    let activeNav = "all"; // all, action_needed_you, waiting_on_contributor, blocked, bot_stream, merge_candidate, or usercol:name
-    let searchQuery = "";
-    let activeSort = "blast_desc";
-    let selectedPR = rows[0] || null;
-    let customCollections = {};
+  const STATUS = {
+    action_needed: { label: "Action needed", tone: "act" },
+    waiting_on_author: { label: "Waiting on author", tone: "wait" },
+    waiting_for_review: { label: "Waiting for review", tone: "wait" },
+    blocked: { label: "Blocked", tone: "block" },
+    ready_to_merge: { label: "Ready to merge", tone: "ready" },
+    draft: { label: "Draft", tone: "muted" },
+    needs_triage: { label: "Needs triage", tone: "muted" },
+  };
+  const RESPONSIBLE = { maintainer: "You / maintainers", author: "Author", reviewer: "Reviewer", ci: "CI", unknown: "Unknown", nobody: "Nobody" };
+  const CHECKS = { SUCCESS: "Checks passing", FAILURE: "Checks failing", PENDING: "Checks running", NONE: "No checks", null: "Checks unknown" };
+  const FILTERS = [
+    ["all", "All"], ["action_needed", "Action needed"], ["waiting_on_author", "Waiting on author"],
+    ["waiting_for_review", "Waiting for review"], ["blocked", "Blocked"], ["ready_to_merge", "Ready to merge"],
+    ["draft", "Draft"], ["stale", "Stale"], ["needs_triage", "Needs triage"],
+  ];
+  const KPIS = [
+    ["all", "Open"], ["action_needed", "Action needed"], ["waiting_on_author", "Waiting on author"],
+    ["waiting_for_review", "Waiting for review"], ["blocked", "Blocked"], ["ready_to_merge", "Ready to merge"],
+  ];
 
-    // Load saved collections from storage
-    if (chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get("sieveCollections", (res) => {
-        if (res.sieveCollections && res.sieveCollections[repoContext.ref]) {
-          customCollections = res.sieveCollections[repoContext.ref];
-          renderCollections();
-        }
-      });
-    }
-
-    const appShell = el("div", { class: "sieve-app-shell" });
-    const workspaceContainer = el("div", { class: "sieve-workspace-container" });
-
-    // ---------------------------------------------------------------- SIDEBAR
-    const sidebar = el("aside", { class: "sieve-sidebar" });
-    const sidebarTop = el("div", { class: "sieve-sidebar-top" });
-
-    // Brand
-    const brand = el("div", { class: "sieve-brand" }, [
-      el("div", { class: "sieve-brand-logo", text: "S" }),
-      el("span", { class: "sieve-brand-title", text: "Sieve Workspace" })
-    ]);
-
-    // Navigation items
-    const navGroupWorkspace = el("div", { class: "sieve-nav-group" });
-    const wsHeading = el("div", { class: "sieve-nav-heading", text: "Workspace" });
-
-    const countAll = rows.length;
-    const countAction = rows.filter((r) => r.turn_status === "action_needed_you" && !r.is_bot).length;
-    const countWaiting = rows.filter((r) => r.turn_status === "waiting_on_contributor").length;
-    const countBlocked = rows.filter((r) => r.turn_status === "blocked" || r.draft).length;
-    const countCollisions = rows.filter((r) => (r.collisions && r.collisions.length > 0) || (r.duplicate_fixes && r.duplicate_fixes.length > 0)).length;
-    const countBots = rows.filter((r) => r.is_bot).length;
-    const countMerge = rows.filter((r) => r.turn_status === "merge_candidate" && !r.is_bot).length;
-
-    const navButtons = {};
-
-    function makeNavItem(id, icon, label, count) {
-      const btn = el("button", {
-        type: "button",
-        class: `sieve-nav-item ${activeNav === id ? "active" : ""}`,
-        onclick: () => selectNav(id)
-      }, [
-        el("span", { class: "sieve-nav-icon", text: icon }),
-        el("span", { text: label }),
-        count !== undefined && count > 0 ? el("span", { class: "sieve-nav-count", text: String(count) }) : null
-      ]);
-      navButtons[id] = btn;
-      return btn;
-    }
-
-    navGroupWorkspace.append(
-      wsHeading,
-      makeNavItem("all", "📂", "All Pull Requests", countAll),
-      makeNavItem("action_needed_you", "📥", "Needs My Attention", countAction),
-      makeNavItem("waiting_on_contributor", "⏳", "Waiting on Author", countWaiting),
-      makeNavItem("blocked", "⚠️", "Blocked & Conflicts", countBlocked),
-      makeNavItem("collisions", "🔀", "Overlapping & Dups", countCollisions),
-      makeNavItem("bot_stream", "🤖", "Bot PR Stream", countBots),
-      makeNavItem("merge_candidate", "✅", "Merge Candidates", countMerge)
-    );
-
-    // Custom Collections Group
-    const navGroupCollections = el("div", { class: "sieve-nav-group", style: "margin-top: 10px;" });
-    const collHeading = el("div", { class: "sieve-nav-heading", text: "Collections" });
-    const collListContainer = el("div", { style: "display: flex; flex-direction: column; gap: 4px;" });
-
-    function renderCollections() {
-      collListContainer.replaceChildren();
-      const keys = Object.keys(customCollections);
-      if (!keys.length) {
-        // default empty items for inspiration
-        ["Security Review", "Release Candidates", "Documentation"].forEach((colName) => {
-          const item = el("button", {
-            type: "button",
-            class: `sieve-nav-item ${activeNav === `usercol:${colName}` ? "active" : ""}`,
-            onclick: () => selectNav(`usercol:${colName}`)
-          }, [
-            el("span", { class: "sieve-nav-icon", text: colName.includes("Security") ? "🔒" : colName.includes("Release") ? "🚀" : "📄" }),
-            el("span", { text: colName })
-          ]);
-          collListContainer.append(item);
-        });
-      } else {
-        keys.forEach((colName) => {
-          const prs = customCollections[colName].prNumbers || [];
-          const item = el("button", {
-            type: "button",
-            class: `sieve-nav-item ${activeNav === `usercol:${colName}` ? "active" : ""}`,
-            onclick: () => selectNav(`usercol:${colName}`)
-          }, [
-            el("span", { class: "sieve-nav-icon", text: "📁" }),
-            el("span", { text: colName }),
-            prs.length > 0 ? el("span", { class: "sieve-nav-count", text: String(prs.length) }) : null
-          ]);
-          collListContainer.append(item);
-        });
-      }
-    }
-    renderCollections();
-
-    const addColBtn = el("button", {
-      type: "button",
-      class: "btn-add-collection",
-      style: "font-size: 12px; color: var(--sieve-text-muted); padding: 6px 14px; text-align: left; cursor: pointer;",
-      text: "+ New Collection",
-      onclick: () => {
-        const name = prompt("Enter new collection name:");
-        if (name && name.trim()) {
-          customCollections[name.trim()] = { prNumbers: [] };
-          if (chrome.storage && chrome.storage.local) {
-            chrome.storage.local.get("sieveCollections", (res) => {
-              const sc = res.sieveCollections || {};
-              sc[repoContext.ref] = customCollections;
-              chrome.storage.local.set({ sieveCollections: sc });
-            });
-          }
-          renderCollections();
-        }
-      }
-    });
-
-    navGroupCollections.append(collHeading, collListContainer, addColBtn);
-    sidebarTop.append(brand, navGroupWorkspace, navGroupCollections);
-
-    // Profile Pill (Lucas Morel reference style)
-    const profilePill = el("div", { class: "sieve-sidebar-profile" }, [
-      el("img", {
-        class: "sieve-profile-avatar",
-        src: `https://github.com/${repoContext.owner}.png?size=64`,
-        alt: repoContext.owner,
-        onerror: (e) => { e.target.style.display = "none"; }
-      }),
-      el("div", { class: "sieve-profile-info" }, [
-        el("div", { class: "sieve-profile-name", text: `@${repoContext.owner}` }),
-        el("div", { class: "sieve-profile-role", text: "Maintainer" })
-      ])
-    ]);
-
-    sidebar.append(sidebarTop, profilePill);
-
-    // ---------------------------------------------------------------- MAIN PANE
-    const mainPane = el("main", { class: "sieve-main" });
-
-    // 1. Top Bar
-    const topBar = el("div", { class: "sieve-topbar" });
-    const topBarLeft = el("div", { class: "sieve-topbar-left" }, [
-      el("h1", { class: "sieve-topbar-title" }, [
-        el("span", { text: "Pull Requests" }),
-        el("span", { style: "font-size: 15px; font-weight: 400; color: var(--sieve-text-muted);", text: `· ${repoContext.owner} / ${repoContext.repo}` })
-      ]),
-      el("div", { class: "sieve-topbar-meta", text: `Review Queue · ${rows.length} open contributions` })
-    ]);
-
-    const segButtons = {
-      all: el("button", { type: "button", class: "sieve-segmented-btn active", text: "Overview", onclick: () => selectNav("all") }),
-      action_needed_you: el("button", { type: "button", class: "sieve-segmented-btn", text: "Attention", onclick: () => selectNav("action_needed_you") }),
-      waiting_on_contributor: el("button", { type: "button", class: "sieve-segmented-btn", text: "Waiting", onclick: () => selectNav("waiting_on_contributor") }),
-      blocked: el("button", { type: "button", class: "sieve-segmented-btn", text: "Blocked", onclick: () => selectNav("blocked") })
-    };
-
-    const segmentedFilter = el("div", { class: "sieve-segmented-control" }, [
-      segButtons.all,
-      segButtons.action_needed_you,
-      segButtons.waiting_on_contributor,
-      segButtons.blocked
-    ]);
-
-    const searchPill = el("div", { class: "sieve-search-pill" }, [
-      el("span", { text: "🔍", style: "font-size: 11px; opacity: 0.6;" }),
-      el("input", {
-        type: "search",
-        placeholder: "Search author, title, #...",
-        oninput: (e) => {
-          searchQuery = e.target.value.toLowerCase();
-          renderCards();
-        }
-      })
-    ]);
-
-    const isConnected = engineStatus && engineStatus.connected;
-    const modelText = isConnected ? (engineStatus.model || "online") : "offline";
-    const enginePill = el("div", {
-      class: `sieve-engine-pill ${isConnected ? "" : "offline"}`,
-      title: "Sieve Engine running on http://127.0.0.1:8787"
-    }, [
-      el("span", { class: "dot" }),
-      el("span", { text: `Engine: ${modelText}` })
-    ]);
-
-    const topBarControls = el("div", { class: "sieve-topbar-controls" }, [
-      segmentedFilter,
-      searchPill,
-      enginePill
-    ]);
-
-    topBar.append(topBarLeft, topBarControls);
-
-    // 2. Top Grid: Attention KPI Strip + High-Contrast Spotlight Card
-    const topGrid = el("div", { class: "sieve-top-grid" });
-
-    // KPI Strip
-    const kpiStrip = el("div", { class: "sieve-kpi-strip" });
-    const kpiCards = {};
-    const kpis = [
-      { id: "action_needed_you", title: "Action Needed", val: countAction, sub: "Waiting on maintainer" },
-      { id: "waiting_on_contributor", title: "Waiting on Author", val: countWaiting, sub: "Changes requested" },
-      { id: "collisions", title: "Overlapping Fixes", val: countCollisions, sub: "File or issue collisions" },
-      { id: "merge_candidate", title: "Merge Candidates", val: countMerge, sub: "Passing checks & approved" }
-    ];
-
-    kpis.forEach((k) => {
-      const card = el("div", {
-        class: `sieve-kpi-card ${activeNav === k.id ? "active" : ""}`,
-        onclick: () => selectNav(k.id)
-      }, [
-        el("div", { class: "sieve-kpi-head" }, [
-          el("span", { class: "sieve-kpi-title", text: k.title }),
-          el("span", { class: "sieve-kpi-icon", text: "↗" })
-        ]),
-        el("div", { class: "sieve-kpi-body" }, [
-          el("span", { class: "sieve-kpi-value", text: String(k.val) }),
-          el("svg", { class: "sieve-sparkline", viewBox: "0 0 72 24" }, [
-            el("path", { d: "M2 18 C 16 4, 32 20, 48 10 S 64 6, 70 8" })
-          ])
-        ]),
-        el("div", { class: "sieve-kpi-sub", text: k.sub })
-      ]);
-      kpiCards[k.id] = card;
-      kpiStrip.append(card);
-    });
-
-    // High-Contrast Pitch-Black Spotlight Card
-    const spotlightCard = el("div", { class: "sieve-spotlight-card" });
-
-    function updateSpotlight(pr) {
-      spotlightCard.replaceChildren();
-      if (!pr) {
-        spotlightCard.append(
-          el("div", { class: "sieve-spotlight-head" }, [
-            el("span", { class: "sieve-spotlight-badge", text: "Spotlight" })
-          ]),
-          el("div", { class: "sieve-spotlight-body" }, [
-            el("div", { class: "sieve-spotlight-pr-title", text: "No Pull Request Selected" }),
-            el("div", { class: "sieve-spotlight-pr-meta", text: rows.length ? "Select a pull request from the queue to inspect impact." : "No open pull requests in this repository." })
-          ])
-        );
-        return;
-      }
-
-      const impactSum = pr.impact_summary || {};
-      const dependentsCount = impactSum.direct_dependents ?? 0;
-      const testsCount = impactSum.related_test_files ?? 0;
-
-      const head = el("div", { class: "sieve-spotlight-head" }, [
-        el("span", { class: "sieve-spotlight-badge", text: `PR #${pr.number} Spotlight` }),
-        el("button", {
-          type: "button",
-          class: "sieve-spotlight-action",
-          text: "⚡ Deep Inspect →",
-          onclick: () => callbacks.onInspectPR?.(pr.number)
-        })
-      ]);
-
-      const body = el("div", { class: "sieve-spotlight-body" }, [
-        el("div", { class: "sieve-spotlight-pr-title", text: pr.title }),
-        el("div", { class: "sieve-spotlight-pr-meta", text: `By @${pr.author} · Score: ${pr.score ?? 0}/100 (${(pr.verdict || "ready").replace("-", " ")})` }),
-        el("div", { class: "sieve-spotlight-stats" }, [
-          el("div", { class: "sieve-spotlight-stat-item" }, [
-            el("span", { class: "sieve-spotlight-stat-label", text: "Dependents" }),
-            el("span", { class: "sieve-spotlight-stat-val", text: `+${dependentsCount}` })
-          ]),
-          el("div", { class: "sieve-spotlight-stat-item" }, [
-            el("span", { class: "sieve-spotlight-stat-label", text: "Test Files" }),
-            el("span", { class: "sieve-spotlight-stat-val", text: String(testsCount) })
-          ]),
-          el("div", { class: "sieve-spotlight-stat-item" }, [
-            el("span", { class: "sieve-spotlight-stat-label", text: "Diff Size" }),
-            el("span", { class: "sieve-spotlight-stat-val", text: `+${pr.additions ?? 0} / -${pr.deletions ?? 0}` })
-          ])
-        ])
-      ]);
-
-      const foot = el("div", { class: "sieve-spotlight-foot" }, [
-        el("div", { class: "sieve-spotlight-author-wrap" }, [
-          pr.author_avatar ? el("img", {
-            class: "sieve-spotlight-author-avatar",
-            src: pr.author_avatar,
-            onerror: (e) => { e.target.style.display = "none"; }
-          }) : null,
-          el("span", { class: "sieve-spotlight-author-name", text: `@${pr.author}` })
-        ]),
-        el("span", { style: "font-size: 11px; opacity: 0.6; font-family: var(--sieve-font-mono);", text: pr.turn_status?.replace(/_/g, " ") || "ready" })
-      ]);
-
-      spotlightCard.append(head, body, foot);
-    }
-    updateSpotlight(selectedPR);
-
-    topGrid.append(kpiStrip, spotlightCard);
-
-    // 3. Queue List Section
-    const queueSection = el("section", { class: "sieve-queue-section" });
-    const queueHeader = el("div", { class: "sieve-queue-header" }, [
-      el("div", { class: "sieve-queue-title" }, [
-        el("span", { text: "Review Queue Stream" }),
-        el("span", { class: "sieve-queue-count", text: `(${rows.length} total)` })
-      ]),
-      el("select", {
-        class: "sieve-queue-sort",
-        onchange: (e) => {
-          activeSort = e.target.value;
-          renderCards();
-        }
-      }, [
-        el("option", { value: "blast_desc", text: "Sort: Blast Radius (High to Low)" }),
-        el("option", { value: "score_desc", text: "Sort: Sieve Score (High to Low)" }),
-        el("option", { value: "num_desc", text: "Sort: Newest First (# Number)" })
-      ])
-    ]);
-
-    const cardsContainer = el("div", { style: "display: flex; flex-direction: column; gap: 12px;" });
-
-    function renderCards() {
-      cardsContainer.replaceChildren();
-
-      // If repository has zero PRs at all
-      if (!rows.length) {
-        cardsContainer.append(
-          el("div", { class: "sieve-empty-state", style: "padding: 60px 20px; text-align: center;" }, [
-            el("div", { class: "sieve-empty-icon", style: "font-size: 36px; margin-bottom: 12px;", text: "✨" }),
-            el("div", { class: "sieve-empty-title", style: "font-size: 18px; font-weight: 700;", text: "All Clear — No Open Pull Requests" }),
-            el("div", { class: "sieve-empty-sub", style: "font-size: 13px; color: var(--sieve-text-secondary); max-width: 440px; margin: 8px auto 0;", text: `There are no open contributions in ${repoContext.owner}/${repoContext.repo}. When a contributor submits a PR, Sieve will automatically map its AST blast radius and verify claims.` })
-          ])
-        );
-        return;
-      }
-
-      // Filter by navigation
-      let filtered = rows.filter((r) => {
-        if (activeNav === "all") return true;
-        if (activeNav === "action_needed_you") return r.turn_status === "action_needed_you" && !r.is_bot;
-        if (activeNav === "waiting_on_contributor") return r.turn_status === "waiting_on_contributor";
-        if (activeNav === "blocked") return r.turn_status === "blocked" || r.draft;
-        if (activeNav === "collisions") return (r.collisions && r.collisions.length > 0) || (r.duplicate_fixes && r.duplicate_fixes.length > 0);
-        if (activeNav === "bot_stream") return r.is_bot;
-        if (activeNav === "merge_candidate") return r.turn_status === "merge_candidate" && !r.is_bot;
-        if (activeNav.startsWith("usercol:")) {
-          const colName = activeNav.replace("usercol:", "");
-          const colPrs = (customCollections[colName] && customCollections[colName].prNumbers) || [];
-          return colPrs.includes(r.number);
-        }
-        return true;
-      });
-
-      // Search query
-      if (searchQuery) {
-        filtered = filtered.filter((r) =>
-          r.title?.toLowerCase().includes(searchQuery) ||
-          r.author?.toLowerCase().includes(searchQuery) ||
-          String(r.number).includes(searchQuery)
-        );
-      }
-
-      // Sort
-      if (activeSort === "blast_desc") {
-        filtered.sort((a, b) => ((b.impact_summary || {}).direct_dependents || 0) - ((a.impact_summary || {}).direct_dependents || 0));
-      } else if (activeSort === "score_desc") {
-        filtered.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-      } else if (activeSort === "num_desc") {
-        filtered.sort((a, b) => b.number - a.number);
-      }
-
-      if (!filtered.length) {
-        cardsContainer.append(
-          el("div", { class: "sieve-empty-state", style: "padding: 40px 20px; text-align: center;" }, [
-            el("div", { class: "sieve-empty-icon", style: "font-size: 28px; margin-bottom: 8px;", text: "📂" }),
-            el("div", { class: "sieve-empty-title", style: "font-size: 15px; font-weight: 600;", text: "No pull requests match this filter" }),
-            el("div", { class: "sieve-empty-sub", style: "font-size: 12.5px; color: var(--sieve-text-secondary); margin-top: 4px;", text: "Try selecting a different view from the sidebar or clear search filters." })
-          ])
-        );
-        return;
-      }
-
-      filtered.forEach((pr) => {
-        const isSelected = selectedPR && selectedPR.number === pr.number;
-        const impactSum = pr.impact_summary || {};
-        const depCount = impactSum.direct_dependents ?? 0;
-        const testCount = impactSum.related_test_files ?? 0;
-
-        const card = el("article", {
-          class: `sieve-pr-card ${isSelected ? "selected" : ""}`,
-          onclick: () => {
-            selectedPR = pr;
-            updateSpotlight(pr);
-            renderCards();
-          }
-        });
-
-        // Head: Title & Score
-        const head = el("div", { class: "sieve-pr-card-head" }, [
-          el("div", { class: "sieve-pr-title-group" }, [
-            el("span", { class: "sieve-pr-num", text: `#${pr.number}` }),
-            el("h3", { class: "sieve-pr-title", text: pr.title })
-          ]),
-          el("div", {
-            class: `sieve-pr-score-badge ${pr.verdict || "ready"}`,
-            text: `${pr.score ?? 0} ${pr.verdict ? pr.verdict.replace("-", " ") : "ready"}`
-          })
-        ]);
-
-        // Collision Banner (if overlapping files or duplicate issues detected)
-        let collisionBanner = null;
-        if (pr.collisions && pr.collisions.length > 0) {
-          const conflicting = pr.collisions.map((c) => `#${c.with_pr}`).join(", ");
-          collisionBanner = el("div", { class: "sieve-collision-banner" }, [
-            el("span", { text: "⚠️" }),
-            el("span", { text: `File Collision: Edits overlapping files with ${conflicting}` })
-          ]);
-        } else if (pr.duplicate_fixes && pr.duplicate_fixes.length > 0) {
-          const dupes = pr.duplicate_fixes.map((d) => `#${d.with_pr}`).join(", ");
-          collisionBanner = el("div", { class: "sieve-collision-banner" }, [
-            el("span", { text: "🔀" }),
-            el("span", { text: `Competing Fix: Resolves same issue as ${dupes}` })
-          ]);
-        }
-
-        // Meta Row
-        const metaRow = el("div", { class: "sieve-pr-meta-row" }, [
-          el("div", { class: "sieve-pr-author-wrap" }, [
-            pr.author_avatar ? el("img", {
-              class: "sieve-pr-author-avatar",
-              src: pr.author_avatar,
-              onerror: (e) => { e.target.style.display = "none"; }
-            }) : null,
-            el("span", { text: `@${pr.author}` })
-          ]),
-          el("span", { style: "font-family: var(--sieve-font-mono); font-size: 11px; opacity: 0.6;", text: `+${pr.additions ?? 0} / -${pr.deletions ?? 0}` }),
-          el("div", { class: "sieve-chips-wrap" }, [
-            depCount > 0
-              ? el("span", { class: "sieve-chip", text: `+${depCount} dependents` })
-              : el("span", { class: "sieve-chip pass", text: "isolated change" }),
-            testCount > 0
-              ? el("span", { class: "sieve-chip pass", text: `✓ ${testCount} tests` })
-              : el("span", { class: "sieve-chip warn", text: "No tests" }),
-            el("span", { class: "sieve-chip", text: pr.turn_status?.replace(/_/g, " ") || "ready" })
-          ])
-        ]);
-
-        // Action Buttons
-        const copyBtn = el("button", {
-          type: "button",
-          class: "btn-sieve secondary",
-          text: "📋 Copy Response",
-          onclick: (e) => {
-            e.stopPropagation();
-            const responseText = `Thanks @${pr.author} for the contribution! Checked the AST impact: ${depCount} dependents affected, ${testCount} tests linked.`;
-            navigator.clipboard.writeText(responseText).then(() => {
-              copyBtn.textContent = "Copied ✓";
-              setTimeout(() => { copyBtn.textContent = "📋 Copy Response"; }, 2000);
-            }).catch(() => {
-              copyBtn.textContent = "Copied ✓";
-              setTimeout(() => { copyBtn.textContent = "📋 Copy Response"; }, 2000);
-            });
-          }
-        });
-
-        const actions = el("div", { class: "sieve-pr-actions" }, [
-          el("button", {
-            type: "button",
-            class: "btn-sieve primary",
-            text: "⚡ Inspect Topology",
-            onclick: (e) => {
-              e.stopPropagation();
-              callbacks.onInspectPR?.(pr.number);
-            }
-          }),
-          copyBtn,
-          el("a", {
-            class: "btn-sieve secondary",
-            href: pr.url,
-            target: "_blank",
-            rel: "noopener",
-            text: "Open on GitHub ↗",
-            onclick: (e) => e.stopPropagation()
-          })
-        ]);
-
-        card.append(head);
-        if (collisionBanner) card.append(collisionBanner);
-        card.append(metaRow, actions);
-        cardsContainer.append(card);
-      });
-    }
-
-    function selectNav(id) {
-      activeNav = id;
-
-      // Update sidebar nav buttons
-      Object.keys(navButtons).forEach((k) => {
-        if (navButtons[k]) {
-          navButtons[k].className = `sieve-nav-item ${k === id ? "active" : ""}`;
-        }
-      });
-
-      // Update segmented top buttons
-      Object.keys(segButtons).forEach((k) => {
-        if (segButtons[k]) {
-          segButtons[k].className = `sieve-segmented-btn ${k === id ? "active" : ""}`;
-        }
-      });
-
-      // Update KPI strip active card
-      Object.keys(kpiCards).forEach((k) => {
-        if (kpiCards[k]) {
-          kpiCards[k].className = `sieve-kpi-card ${k === id ? "active" : ""}`;
-        }
-      });
-
-      renderCards();
-    }
-
-    renderCards();
-    queueSection.append(queueHeader, cardsContainer);
-
-    // 4. Floating Action Pill Bar
-    const floatingBar = el("div", {
-      class: "sieve-floating-pill-bar",
-      onclick: () => {
-        selectNav("action_needed_you");
-        queueSection.scrollIntoView({ behavior: "smooth" });
-      }
-    }, [
-      el("div", { class: "sieve-floating-pill-icon", text: "⚡" }),
-      el("span", { class: "sieve-floating-pill-text", text: `Sieve Intelligence Active · ${countAction} PRs require maintainer attention` })
-    ]);
-
-    mainPane.append(topBar, topGrid, queueSection, floatingBar);
-    workspaceContainer.append(sidebar, mainPane);
-    appShell.append(workspaceContainer);
-
-    const styleLink = el("link", { rel: "stylesheet", href: chrome.runtime.getURL("ui/workspace.css") });
-    shadowRoot.replaceChildren(styleLink, appShell);
+  // Urgency is explicit, not a score: lower rank first, then longest-waiting first.
+  function urgencyRank(r) {
+    const lc = r.lifecycle;
+    if (lc.status === "action_needed" && lc.evidence.some((e) => e.startsWith("Review requested from you"))) return 0;
+    if (lc.status === "action_needed" && lc.next_action.startsWith("Re-review")) return 1;
+    if (lc.status === "blocked" && lc.blockers.some((b) => b.severity === "hard")) return 2;
+    if (lc.status === "action_needed") return 3;
+    if (lc.status === "ready_to_merge") return 4;
+    if (lc.status === "blocked") return 5;
+    if (lc.status === "needs_triage") return 6;
+    if (lc.status === "waiting_for_review") return 7;
+    if (lc.status === "waiting_on_author") return 8;
+    return 9;
   }
 
-  return { render };
+  const DAY = 86400000;
+  function ageText(iso) {
+    if (!iso) return "activity unknown";
+    const ms = Date.now() - new Date(iso).getTime();
+    if (ms < 3600000) return `${Math.max(1, Math.round(ms / 60000))}m ago`;
+    if (ms < DAY) return `${Math.round(ms / 3600000)}h ago`;
+    return `${Math.round(ms / DAY)}d ago`;
+  }
+
+  function reviewState(r) {
+    const ev = r.lifecycle.evidence.join(" ");
+    if (/requested changes/.test(ev)) return "Changes requested";
+    if (/Approved by/.test(ev)) return "Approved";
+    if ((r.requested_reviewers || []).length) return `Review requested (${r.requested_reviewers.length})`;
+    if (r.lifecycle.missing.includes("reviews")) return "Reviews unknown";
+    return "No reviews";
+  }
+
+  // Normalize row to canonical 7-status lifecycle schema, mapping legacy fields if missing
+  function normalizeRow(r) {
+    if (!r) return null;
+    if (r.lifecycle && r.lifecycle.status) {
+      return {
+        ...r,
+        lifecycle: {
+          status: r.lifecycle.status || "needs_triage",
+          reason: r.lifecycle.reason || "Classified by deterministic lifecycle engine.",
+          responsible: r.lifecycle.responsible || "unknown",
+          next_action: r.lifecycle.next_action || "Triage pull request",
+          last_activity_at: r.lifecycle.last_activity_at || r.updated_at || r.created_at || null,
+          evidence: Array.isArray(r.lifecycle.evidence) ? r.lifecycle.evidence : [],
+          blockers: Array.isArray(r.lifecycle.blockers) ? r.lifecycle.blockers : [],
+          missing: Array.isArray(r.lifecycle.missing) ? r.lifecycle.missing : [],
+        }
+      };
+    }
+
+    // Map legacy queue fields:
+    let status = "needs_triage";
+    let responsible = "unknown";
+    let reason = r.verdict ? `Intake verdict: ${r.verdict}` : "Legacy queue row without lifecycle payload.";
+    let nextAction = "Triage pull request";
+
+    if (r.draft) {
+      status = "draft";
+      responsible = "author";
+      reason = "Marked as draft on GitHub.";
+      nextAction = "Mark ready for review";
+    } else if (r.turn_status === "action_needed_you") {
+      status = "action_needed";
+      responsible = "maintainer";
+      reason = "Legacy queue flagged for maintainer action.";
+      nextAction = "Review and address changes";
+    } else if (r.turn_status === "waiting_on_contributor") {
+      status = "waiting_on_author";
+      responsible = "author";
+      reason = "Waiting on author revision.";
+      nextAction = "Address requested changes";
+    } else if (r.turn_status === "blocked") {
+      status = "blocked";
+      responsible = "maintainer";
+      reason = "Blocked by conflicts or checks.";
+      nextAction = "Resolve merge conflicts or blocking checks";
+    } else if (r.turn_status === "merge_candidate") {
+      status = "ready_to_merge";
+      responsible = "maintainer";
+      reason = "Passing checks and ready for integration.";
+      nextAction = "Merge pull request";
+    } else if (r.category === "needs_review" || r.turn_status === "waiting_for_review") {
+      status = "waiting_for_review";
+      responsible = "reviewer";
+      reason = "Awaiting review from assigned reviewers.";
+      nextAction = "Submit pull request review";
+    }
+
+    const blockers = [];
+    if (Array.isArray(r.collisions) && r.collisions.length > 0) {
+      blockers.push({ severity: "soft", detail: `Overlaps with PR #${r.collisions[0].with_pr} on ${r.collisions[0].file}` });
+    }
+    if (r.checks === "FAILURE") {
+      blockers.push({ severity: "hard", detail: "CI checks are failing" });
+    }
+
+    return {
+      ...r,
+      author: r.author || "unknown",
+      title: r.title || `PR #${r.number || "unknown"}`,
+      lifecycle: {
+        status,
+        reason,
+        responsible,
+        next_action: nextAction,
+        last_activity_at: r.updated_at || r.created_at || null,
+        evidence: Array.isArray(r.top_issues) && r.top_issues.length ? r.top_issues : [reason],
+        blockers,
+        missing: ["graphql_lifecycle"],
+      }
+    };
+  }
+
+  function render(shadowRoot, repoContext, queueData, engineStatus, callbacks = {}) {
+    const meta = queueData.lifecycle || {};
+    const rows = (queueData.rows || []).map(normalizeRow).filter(Boolean);
+    const errored = (queueData.rows || []).filter((r) => r.error);
+    const repoRef = repoContext.ref || (repoContext.owner && repoContext.repo ? `${repoContext.owner}/${repoContext.repo}` : "default");
+
+    let collections = {}; // { [colName]: [prNumbers...] }
+    const state = {
+      filter: "all",
+      query: "",
+      sort: "urgency",
+      author: "",
+      reviewer: "",
+      label: "",
+      drafts: "include",
+      selected: rows[0]?.number || null,
+      staleDays: meta.stale_days || 14
+    };
+
+    // Load custom collections from storage
+    try {
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        chrome.storage.local.get("sieveCollections", (res) => {
+          if (res?.sieveCollections && res.sieveCollections[repoRef]) {
+            const raw = res.sieveCollections[repoRef];
+            collections = {};
+            for (const [name, val] of Object.entries(raw)) {
+              if (Array.isArray(val)) collections[name] = val;
+              else if (val && Array.isArray(val.prNumbers)) collections[name] = val.prNumbers;
+              else if (val && Array.isArray(val.prs)) collections[name] = val.prs;
+            }
+            paintChips();
+            paintList();
+            paintDetail();
+          }
+        });
+      }
+    } catch { /* storage unavailable */ }
+
+    function saveCollections() {
+      try {
+        if (typeof chrome !== "undefined" && chrome.storage?.local) {
+          chrome.storage.local.get("sieveCollections", (res) => {
+            const all = res?.sieveCollections || {};
+            all[repoRef] = collections;
+            chrome.storage.local.set({ sieveCollections: all });
+          });
+        }
+      } catch { /* storage unavailable */ }
+    }
+
+    const isStale = (r) => {
+      const at = r.lifecycle.last_activity_at;
+      return at ? (Date.now() - new Date(at).getTime()) / DAY >= state.staleDays : false;
+    };
+    const isPrInCollection = (colName, prNum) => Array.isArray(collections[colName]) && collections[colName].includes(prNum);
+
+    const matchesFilter = (r, f) => {
+      if (f === "all") return true;
+      if (f === "stale") return isStale(r);
+      if (f.startsWith("col:")) return isPrInCollection(f.slice(4), r.number);
+      return r.lifecycle.status === f;
+    };
+    const counts = () => Object.fromEntries(FILTERS.map(([id]) => [id, rows.filter((r) => matchesFilter(r, id)).length]));
+
+    // ------------------------------------------------------------ header
+    const synced = meta.fetched_at ? new Date(meta.fetched_at * 1000) : null;
+    const syncText = el("span", { class: "scc-sync", title: synced ? synced.toISOString() : "" });
+    const updateSync = () => { syncText.textContent = synced ? `Synced ${ageText(synced.toISOString())}` : "Sync time unknown"; };
+    updateSync();
+    clearInterval(syncTimer);
+    syncTimer = setInterval(updateSync, 60000); // keeps "Synced N min ago" honest while the page stays open
+
+    const search = el("input", { class: "scc-search", type: "search", placeholder: "Search #, title or author", "aria-label": "Search pull requests" });
+    search.addEventListener("input", () => { state.query = search.value.trim().toLowerCase(); paintList(); });
+
+    const staleInput = el("input", { type: "number", min: "1", max: "365", value: String(state.staleDays), id: "scc-stale-days", class: "scc-num" });
+    staleInput.addEventListener("change", () => {
+      const v = Math.max(1, Math.min(365, parseInt(staleInput.value, 10) || 14));
+      state.staleDays = v;
+      staleInput.value = String(v);
+      try { chrome.storage.local.set({ sieveStaleDays: v }); } catch { /* storage unavailable: applies to this session only */ }
+      paintAll();
+    });
+    try {
+      chrome.storage.local.get("sieveStaleDays", (res) => {
+        if (res && Number.isFinite(res.sieveStaleDays)) { state.staleDays = res.sieveStaleDays; staleInput.value = String(res.sieveStaleDays); paintAll(); }
+      });
+    } catch { /* storage unavailable */ }
+    const settingsPanel = el("div", { class: "scc-settings", id: "scc-settings", hidden: true }, [
+      el("label", { for: "scc-stale-days" }, ["Mark stale after ", staleInput, " days without a commit or review"]),
+    ]);
+    const settingsBtn = el("button", { type: "button", class: "scc-btn ghost", "aria-expanded": "false", "aria-controls": "scc-settings", text: "Settings",
+      onclick: () => { settingsPanel.hidden = !settingsPanel.hidden; settingsBtn.setAttribute("aria-expanded", String(!settingsPanel.hidden)); } });
+    const refreshBtn = callbacks.onRefresh
+      ? el("button", { type: "button", class: "scc-btn ghost", text: "Refresh", onclick: () => { refreshBtn.disabled = true; refreshBtn.textContent = "Refreshing…"; callbacks.onRefresh(); } })
+      : null;
+
+    const header = el("header", { class: "scc-head" }, [
+      el("div", { class: "scc-title" }, [
+        el("p", { class: "scc-brand", text: "SIEVE" }),
+        el("h1", { text: "Maintainer Command Center" }),
+        el("p", { class: "scc-meta" }, [
+          el("strong", { text: `${repoContext.owner} / ${repoContext.repo}` }), " · ", syncText,
+          meta.viewer ? ` · viewing as @${meta.viewer}` : "",
+          engineStatus && !engineStatus.connected ? " · engine offline" : "",
+        ]),
+      ]),
+      el("div", { class: "scc-tools" }, [search, refreshBtn, settingsBtn]),
+    ]);
+
+    // partial-data notices: state exactly what Sieve couldn't see
+    const notices = [];
+    if (meta.source === "rest") notices.push(`Review, check and merge data unavailable (${meta.error || "GitHub GraphQL failed"}). Statuses use only what the pull request list shows.`);
+    if (meta.truncated) notices.push(`Showing the ${rows.length} most recently updated of ${meta.total_count} open pull requests.`);
+    if (!meta.viewer && meta.source !== "rest") notices.push("Your GitHub identity is unknown, so “review requested from you” can't be detected.");
+    if (errored.length) notices.push(`${errored.length} pull request(s) failed to load.`);
+    const noticeBox = notices.length ? el("div", { class: "scc-notice", role: "status" }, notices.map((n) => el("p", { text: n }))) : null;
+
+    // ------------------------------------------------------------ KPIs
+    const kpiBox = el("div", { class: "scc-kpis", role: "group", "aria-label": "Pull request counts by status" });
+    function paintKpis() {
+      const c = counts();
+      kpiBox.replaceChildren(...KPIS.map(([id, label]) => el("button", {
+        type: "button", class: `scc-kpi ${STATUS[id]?.tone || ""}`, "aria-pressed": String(state.filter === id), onclick: () => setFilter(id),
+      }, [el("span", { class: "scc-kpi-num", text: String(c[id]) }), el("span", { class: "scc-kpi-label", text: label })])));
+    }
+
+    // ------------------------------------------------------------ attention queue
+    const attention = el("section", { class: "scc-attention", "aria-labelledby": "scc-att-h" });
+    function paintAttention() {
+      const items = rows.filter((r) => r.lifecycle.status === "action_needed" || urgencyRank(r) === 2)
+        .sort((a, b) => urgencyRank(a) - urgencyRank(b) || (a.lifecycle.last_activity_at || "").localeCompare(b.lifecycle.last_activity_at || ""))
+        .slice(0, 5);
+      attention.replaceChildren(
+        el("h2", { id: "scc-att-h", text: "Your attention required" }),
+        items.length
+          ? el("ol", { class: "scc-att-list" }, items.map((r) => el("li", {}, [
+              el("button", { type: "button", class: "scc-att-item", onclick: () => select(r.number) }, [
+                el("span", { class: "scc-num-tag", text: `#${r.number}` }),
+                el("span", { class: "scc-att-title", text: r.title }),
+                el("span", { class: "scc-att-why", text: `${r.lifecycle.reason} · ${ageText(r.lifecycle.last_activity_at)}` }),
+              ]),
+            ])))
+          : el("p", { class: "scc-empty", text: "Nothing needs you right now." }),
+      );
+    }
+
+    // ------------------------------------------------------------ filters + toolbar
+    const chipBox = el("div", { class: "scc-chips", role: "group", "aria-label": "Filter by status" });
+    function paintChips() {
+      const c = counts();
+      const standardChips = FILTERS.map(([id, label]) => el("button", {
+        type: "button", class: "scc-chip", "aria-pressed": String(state.filter === id), onclick: () => setFilter(id),
+      }, [label, el("span", { class: "scc-chip-count", text: String(c[id]) })]));
+
+      const colChips = Object.keys(collections).map((name) => {
+        const count = rows.filter((r) => isPrInCollection(name, r.number)).length;
+        const chipId = `col:${name}`;
+        const delBtn = el("span", {
+          class: "scc-chip-del",
+          text: "×",
+          title: `Delete collection "${name}"`,
+          onclick: (e) => {
+            e.stopPropagation();
+            delete collections[name];
+            if (state.filter === chipId) state.filter = "all";
+            saveCollections();
+            paintAll();
+          }
+        });
+        return el("button", {
+          type: "button",
+          class: "scc-chip custom-col",
+          "aria-pressed": String(state.filter === chipId),
+          onclick: () => setFilter(chipId)
+        }, [`📁 ${name}`, el("span", { class: "scc-chip-count", text: String(count) }), delBtn]);
+      });
+
+      const addColBtn = el("button", {
+        type: "button",
+        class: "scc-chip ghost-chip",
+        text: "+ Collection",
+        onclick: () => {
+          const name = window.prompt("New collection name:")?.trim();
+          if (name && !collections[name]) {
+            collections[name] = [];
+            saveCollections();
+            setFilter(`col:${name}`);
+          }
+        }
+      });
+
+      chipBox.replaceChildren(...standardChips, ...colChips, addColBtn);
+    }
+    const uniq = (xs) => [...new Set(xs.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const selectBox = (key, label, options, allLabel) => {
+      const s = el("select", { class: "scc-select", "aria-label": label },
+        [el("option", { value: "", text: allLabel }), ...options.map((o) => el("option", { value: o, text: o }))]);
+      s.addEventListener("change", () => { state[key] = s.value; paintList(); });
+      return s;
+    };
+    const sortSel = el("select", { class: "scc-select", "aria-label": "Sort" }, [
+      ["urgency", "Sort: urgency"],
+      ["oldest", "Sort: longest waiting"],
+      ["recent", "Sort: recent activity"],
+      ["status", "Sort: status"],
+      ["blast_desc", "Sort: blast radius"],
+      ["number", "Sort: PR number"],
+    ].map(([v, t]) => el("option", { value: v, text: t })));
+    sortSel.addEventListener("change", () => { state.sort = sortSel.value; paintList(); });
+    const draftSel = el("select", { class: "scc-select", "aria-label": "Drafts" },
+      [["include", "Drafts: include"], ["exclude", "Drafts: hide"], ["only", "Drafts: only"]].map(([v, t]) => el("option", { value: v, text: t })));
+    draftSel.addEventListener("change", () => { state.drafts = draftSel.value; paintList(); });
+    const toolbar = el("div", { class: "scc-toolbar" }, [
+      sortSel,
+      selectBox("author", "Filter by author", uniq(rows.map((r) => r.author)), "All authors"),
+      selectBox("reviewer", "Filter by reviewer", uniq(rows.flatMap((r) => [...(r.requested_reviewers || []), ...(r.reviewers || [])])), "All reviewers"),
+      selectBox("label", "Filter by label", uniq(rows.flatMap((r) => r.labels || [])), "All labels"),
+      draftSel,
+    ]);
+
+    // ------------------------------------------------------------ list + detail
+    const list = el("ul", { class: "scc-list", "aria-label": "Pull requests" });
+    const detail = el("aside", { class: "scc-detail", "aria-live": "polite", "aria-label": "Pull request details" });
+
+    function visibleRows() {
+      const q = state.query;
+      const out = rows.filter((r) => matchesFilter(r, state.filter)
+        && (!q || String(r.number) === q.replace("#", "") || r.title.toLowerCase().includes(q) || (r.author || "").toLowerCase().includes(q))
+        && (!state.author || r.author === state.author)
+        && (!state.reviewer || (r.requested_reviewers || []).includes(state.reviewer) || (r.reviewers || []).includes(state.reviewer))
+        && (!state.label || (r.labels || []).includes(state.label))
+        && (state.drafts === "include" || (state.drafts === "only" ? r.draft : !r.draft)));
+      const act = (r) => r.lifecycle.last_activity_at || "";
+      const blastScore = (r) => {
+        if (r.impact && Array.isArray(r.impact.nodes)) return r.impact.nodes.length;
+        if (typeof r.blast_radius === "number") return r.blast_radius;
+        if (typeof r.score === "number") return r.score;
+        return 0;
+      };
+      const cmp = {
+        urgency: (a, b) => urgencyRank(a) - urgencyRank(b) || act(a).localeCompare(act(b)),
+        oldest: (a, b) => act(a).localeCompare(act(b)),
+        recent: (a, b) => act(b).localeCompare(act(a)),
+        status: (a, b) => a.lifecycle.status.localeCompare(b.lifecycle.status) || b.number - a.number,
+        blast_desc: (a, b) => blastScore(b) - blastScore(a) || b.number - a.number,
+        number: (a, b) => b.number - a.number,
+      }[state.sort] || ((a, b) => b.number - a.number);
+      return out.sort(cmp);
+    }
+
+    function row(r) {
+      const lc = r.lifecycle;
+      const st = STATUS[lc.status];
+      return el("li", {}, [el("button", {
+        type: "button", class: "scc-row", "aria-current": state.selected === r.number ? "true" : null, onclick: () => select(r.number),
+      }, [
+        el("span", { class: "scc-row-main" }, [
+          el("span", { class: "scc-row-title" }, [el("span", { class: "scc-num-tag", text: `#${r.number}` }), r.title,
+            r.draft ? el("span", { class: "scc-tag", text: "draft" }) : null,
+            isStale(r) ? el("span", { class: "scc-tag", text: "stale" }) : null,
+            ...(r.labels || []).slice(0, 3).map((l) => el("span", { class: "scc-tag label", text: l }))]),
+          el("span", { class: "scc-row-next" }, [el("strong", { text: RESPONSIBLE[lc.responsible] || lc.responsible }), ` → ${lc.next_action}`]),
+          el("span", { class: "scc-row-facts", text: `@${r.author} · ${reviewState(r)} · ${CHECKS[r.checks] || CHECKS.null} · ${ageText(lc.last_activity_at)}` }),
+        ]),
+        el("span", { class: `scc-status ${st.tone}`, text: st.label }),
+      ])]);
+    }
+
+    function paintList() {
+      const items = visibleRows();
+      list.replaceChildren(...(items.length ? items.map(row)
+        : [el("li", { class: "scc-empty", text: rows.length ? "No pull requests match these filters." : "No open pull requests." })]));
+    }
+
+    function paintDetail() {
+      const r = rows.find((x) => x.number === state.selected);
+      if (!r) {
+        detail.replaceChildren(el("p", { class: "scc-empty", text: "Select a pull request to see why it is in its queue, who needs to act, and what's next." }));
+        return;
+      }
+      const lc = r.lifecycle;
+      const gh = /^https:\/\/github\.com\//.test(r.url || "") ? r.url : null;
+      detail.replaceChildren(
+        el("p", { class: "scc-num-tag", text: `#${r.number} · @${r.author}` }),
+        el("h3", { text: r.title }),
+        el("span", { class: `scc-status ${STATUS[lc.status].tone}`, text: STATUS[lc.status].label }),
+        el("dl", { class: "scc-facts" }, [
+          el("dt", { text: "Why this queue" }), el("dd", { text: lc.reason }),
+          el("dt", { text: "Who acts" }), el("dd", { text: RESPONSIBLE[lc.responsible] || lc.responsible }),
+          el("dt", { text: "Next action" }), el("dd", { text: lc.next_action }),
+          el("dt", { text: "Last activity" }), el("dd", { text: lc.last_activity_at ? `${ageText(lc.last_activity_at)} (commit or review)` : "Unknown" }),
+        ]),
+        el("h4", { text: "Evidence from GitHub" }),
+        el("ul", { class: "scc-evidence" }, lc.evidence.map((e) => el("li", { text: e }))),
+        lc.blockers.length ? el("h4", { text: "Blockers" }) : null,
+        lc.blockers.length ? el("ul", { class: "scc-evidence" }, lc.blockers.map((b) => el("li", {}, [el("span", { class: `scc-sev ${b.severity}`, text: b.severity }), b.detail]))) : null,
+        lc.missing.length ? el("p", { class: "scc-missing", text: `Not available to Sieve: ${lc.missing.join(", ")}.` }) : null,
+        r.analyzed && r.score !== null && r.score !== undefined ? el("p", { class: "scc-missing", text: `Sieve intake score ${r.score}/100 (${r.verdict}).` }) : null,
+        el("div", { class: "scc-detail-cols" }, [
+          el("h4", { text: "Collections" }),
+          Object.keys(collections).filter((name) => isPrInCollection(name, r.number)).length
+            ? el("div", { class: "scc-col-tags" }, Object.keys(collections).filter((name) => isPrInCollection(name, r.number)).map((name) => el("span", { class: "scc-tag" }, [
+                `📁 ${name} `,
+                el("span", {
+                  class: "scc-tag-del",
+                  text: "×",
+                  title: `Remove from ${name}`,
+                  onclick: () => {
+                    collections[name] = collections[name].filter((n) => n !== r.number);
+                    saveCollections();
+                    paintAll();
+                  }
+                })
+              ])))
+            : el("p", { class: "scc-missing", text: "Not in any custom collection." }),
+          Object.keys(collections).filter((name) => !isPrInCollection(name, r.number)).length
+            ? el("select", {
+                class: "scc-select scc-col-select",
+                "aria-label": "Add to collection",
+                onchange: (e) => {
+                  const targetCol = e.target.value;
+                  if (targetCol && collections[targetCol]) {
+                    if (!collections[targetCol].includes(r.number)) {
+                      collections[targetCol].push(r.number);
+                      saveCollections();
+                      paintAll();
+                    }
+                  }
+                }
+              }, [el("option", { value: "", text: "+ Add to collection…" }), ...Object.keys(collections).filter((name) => !isPrInCollection(name, r.number)).map((c) => el("option", { value: c, text: c }))])
+            : null,
+        ]),
+        el("div", { class: "scc-detail-actions" }, [
+          el("button", { type: "button", class: "scc-btn primary", text: "Open PR intelligence", onclick: () => callbacks.onInspectPR?.(r.number) }),
+          gh ? el("a", { class: "scc-btn ghost", href: gh, target: "_blank", rel: "noopener", text: "Open on GitHub ↗" }) : null,
+        ]),
+      );
+    }
+
+    function select(n) { state.selected = n; paintList(); paintDetail(); }
+    function setFilter(id) { state.filter = id; paintAll(); }
+    function paintAll() { paintKpis(); paintAttention(); paintChips(); paintList(); paintDetail(); }
+
+    const app = el("div", { class: "sieve-workspace scc" }, [
+      header, settingsPanel, noticeBox, kpiBox, attention,
+      el("section", { class: "scc-queue", "aria-label": "Pull request queue" }, [chipBox, toolbar, el("div", { class: "scc-split" }, [list, detail])]),
+    ]);
+    paintAll();
+
+    const styleLink = el("link", { rel: "stylesheet", href: chrome.runtime.getURL("ui/workspace.css") });
+    shadowRoot.replaceChildren(styleLink, app);
+  }
+
+  return { render, normalizeRow, FILTERS, STATUS };
 })();

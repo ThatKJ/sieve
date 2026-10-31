@@ -172,3 +172,28 @@ body {
   color: var(--text-muted);
   font-family: var(--font-mono);
 }
+
+.tab-note { margin-top: 8px; font-size: 11.5px; line-height: 1.45; color: var(--text-secondary); }
+
+/* Master switch: the one control that turns Sieve on or off everywhere */
+.master { padding-bottom: 12px; }
+.master-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+.master-text { display: grid; gap: 1px; }
+.master-title { font-size: 14px; font-weight: 700; }
+.master-state { font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); }
+.master-state.on { color: var(--status-ready); }
+.master-help { margin-top: 6px; font-size: 11.5px; line-height: 1.45; color: var(--text-secondary); }
+.switch {
+  appearance: none; -webkit-appearance: none; flex: none; position: relative; cursor: pointer;
+  width: 42px; height: 24px; border-radius: 999px; margin: 0;
+  background: var(--border-strong); transition: background 160ms ease;
+}
+.switch::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); transition: transform 160ms ease;
+}
+.switch:checked { background: var(--status-ready); }
+.switch:checked::after { transform: translateX(18px); }
+.switch:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.switch:disabled { opacity: 0.5; cursor: progress; }
+@media (prefers-reduced-motion: reduce) { .switch, .switch::after { transition: none; } }

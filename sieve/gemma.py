@@ -239,42 +239,74 @@ Answer strictly in valid JSON matching this schema:
 """
 
 
+def make_session_key(repo_ref, pr_number, head_sha):
+    """Deterministic, unambiguous tuple key for PR session context.
+
+    Session identity is strictly bound to (repo_ref, pr_number, head_sha).
+    Switching repositories, PR numbers, or head SHAs invalidates access to older context.
+    """
+    clean_repo = str(repo_ref).strip().lower()
+    if "#" in clean_repo:
+        clean_repo = clean_repo.split("#")[0]
+    try:
+        clean_pr = int(pr_number)
+    except (TypeError, ValueError):
+        clean_pr = 0
+    clean_sha = str(head_sha).strip()
+    return (clean_repo, clean_pr, clean_sha)
+
+
 def _ground_references(model_output, evidence):
     """Cross-check model citations against verified repository files and nodes.
 
-    Distinguishes verified AST facts from model hypotheses without mutating raw conclusions.
+    Distinguishes:
+    1. Direct PR Evidence (changed files, direct dependents, test consumers)
+    2. Repository Existence (upstream symbols, other graph nodes)
+    3. Model Hypotheses (unverified files or model interpretations)
     """
-    known_paths = set()
+    direct_pr_symbols = set()
     for cf in evidence.get("changed_files", []):
-        known_paths.add(cf.get("path"))
+        p = cf.get("path")
+        if p:
+            direct_pr_symbols.add(p)
     for dep in evidence.get("direct_dependents", []):
-        known_paths.add(dep)
+        if dep:
+            direct_pr_symbols.add(dep)
     for t in evidence.get("test_consumers", []):
-        known_paths.add(t)
+        if t:
+            direct_pr_symbols.add(t)
+
+    repo_graph_symbols = set()
     for e in evidence.get("graph_edges", []):
-        known_paths.add(e.get("source"))
-        known_paths.add(e.get("target"))
+        if e.get("source"):
+            repo_graph_symbols.add(e.get("source"))
+        if e.get("target"):
+            repo_graph_symbols.add(e.get("target"))
 
-    # Also extract base file names for partial matching
-    known_basenames = {p.split("/")[-1] for p in known_paths if p}
+    all_known = direct_pr_symbols | repo_graph_symbols
+    direct_basenames = {p.split("/")[-1] for p in direct_pr_symbols if p}
+    all_basenames = {p.split("/")[-1] for p in all_known if p}
 
-    def verify_citation(cit):
+    def classify_citation(cit):
         if not cit:
-            return False
+            return "unverified_hypothesis"
         cit_str = str(cit).strip()
-        if cit_str in known_paths:
-            return True
-        cit_base = cit_str.split("/")[-1]
-        return cit_base in known_basenames
+        if cit_str in direct_pr_symbols or cit_str.split("/")[-1] in direct_basenames:
+            return "direct_pr_evidence"
+        if cit_str in all_known or cit_str.split("/")[-1] in all_basenames:
+            return "repo_symbol"
+        return "unverified_hypothesis"
 
     # Annotate risks
     risks = model_output.get("potential_risks", [])
     grounded_risks = []
     for r in risks:
         ev = r.get("evidence", "")
-        is_verified = verify_citation(ev)
+        tier = classify_citation(ev)
         r_copy = dict(r)
-        r_copy["verified"] = is_verified
+        r_copy["evidence_verification"] = tier
+        r_copy["verified"] = tier in ("direct_pr_evidence", "repo_symbol")
+        r_copy["interpretation_type"] = "model_hypothesis"
         grounded_risks.append(r_copy)
     model_output["potential_risks"] = grounded_risks
 
@@ -283,29 +315,43 @@ def _ground_references(model_output, evidence):
     grounded_tests = []
     for t in tests:
         target = t.get("target", "")
-        is_verified = verify_citation(target)
+        tier = classify_citation(target)
         t_copy = dict(t)
-        t_copy["verified"] = is_verified
+        t_copy["evidence_verification"] = tier
+        t_copy["verified"] = tier in ("direct_pr_evidence", "repo_symbol")
+        t_copy["interpretation_type"] = "model_hypothesis"
         grounded_tests.append(t_copy)
     model_output["missing_test_scenarios"] = grounded_tests
 
-    # Identify confirmed facts vs speculative hypotheses
-    verified_citations = set()
-    for p in known_paths:
+    # Identify confirmed citations vs speculative hypotheses
+    cited_symbols = set()
+    for p in all_known:
         if p and (p in json.dumps(model_output)):
-            verified_citations.add(p)
+            cited_symbols.add(p)
 
     model_output["grounding"] = {
-        "verified_evidence_citations": sorted(list(verified_citations)),
-        "total_known_repository_symbols": len(known_paths),
-        "verified_symbols_cited": len(verified_citations),
-        "status": "grounded" if verified_citations else "unverified_hypotheses"
+        "verified_evidence_citations": sorted(list(direct_pr_symbols & cited_symbols)),
+        "repo_symbols_cited": sorted(list((all_known - direct_pr_symbols) & cited_symbols)),
+        "unverified_hypotheses_count": sum(1 for r in grounded_risks if not r["verified"]) + sum(1 for t in grounded_tests if not t["verified"]),
+        "status": "grounded" if direct_pr_symbols & cited_symbols else "unverified_hypotheses",
+        "note": "Citation verification confirms symbol existence in repository AST; risk interpretations remain model hypotheses."
     }
 
     return model_output
 
 
-def analyze_visual_architecture(image_input, evidence, user_question=None, api_key=None, timeout=45):
+def _extract_text_from_candidate(candidate):
+    """Safely extract generated output text, filtering out internal thinking parts."""
+    parts = candidate.get("content", {}).get("parts", [])
+    for p in reversed(parts):
+        if not p.get("thought") and p.get("text"):
+            return p.get("text")
+    if parts and parts[-1].get("text"):
+        return parts[-1].get("text")
+    return ""
+
+
+def analyze_visual_architecture(image_input, evidence, user_question=None, api_key=None, timeout=60):
     """Execute real multimodal visual architecture analysis using Gemma 4.
 
     Args:
@@ -318,11 +364,11 @@ def analyze_visual_architecture(image_input, evidence, user_question=None, api_k
     Returns:
         Structured analysis dict including diagnostic metadata.
     """
+    raw_bytes, width, height, clean_b64 = validate_png_image(image_input)
+
     key = api_key or get_api_key()
     if not key:
         raise ValueError("Gemma API key not configured. Set GEMMA_API_KEY in .env or environment.")
-
-    raw_bytes, width, height, clean_b64 = validate_png_image(image_input)
 
     repo_ref = evidence.get("repository", "unknown")
     pr_number = evidence.get("pr_number", 0)
@@ -336,26 +382,7 @@ def analyze_visual_architecture(image_input, evidence, user_question=None, api_k
     if user_question:
         prompt_content += f"MAINTAINER SPECIFIC QUESTION:\n{user_question}\n\n"
 
-    # Try Interactions API first (unified multimodal format)
-    # Payload format according to Google Interactions API specification:
-    interactions_payload = {
-        "model": MODEL_ID,
-        "input": [
-            {
-                "type": "image",
-                "image_url": f"data:image/png;base64,{clean_b64}"
-            },
-            {
-                "type": "text",
-                "text": prompt_content
-            }
-        ],
-        "response_format": {
-            "type": "json_object"
-        }
-    }
-
-    # Backup / Direct generateContent format (Google Generative Language API)
+    # Multimodal payload for Google Generative Language API
     generate_content_payload = {
         "contents": [
             {
@@ -379,57 +406,35 @@ def analyze_visual_architecture(image_input, evidence, user_question=None, api_k
         }
     }
 
-    # Execute request
     raw_response_text = None
-    endpoint_used = None
+    endpoint_used = GENERATE_CONTENT_URL
 
-    # First attempt: Interactions API
-    try:
-        endpoint_used = INTERACTIONS_URL
-        req = urllib.request.Request(
-            INTERACTIONS_URL,
-            data=json.dumps(interactions_payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": key,
-                "User-Agent": "Sieve-Workspace-Visual-Intelligence/1.0"
-            }
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            resp_data = json.loads(resp.read().decode("utf-8"))
-            # Parse response from Interactions API
-            if "output" in resp_data and isinstance(resp_data["output"], list):
-                for part in resp_data["output"]:
-                    if part.get("type") == "text":
-                        raw_response_text = part.get("text")
-                        break
-            elif "response" in resp_data:
-                raw_response_text = resp_data["response"]
-            elif "candidates" in resp_data:
-                raw_response_text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
-            else:
-                raw_response_text = json.dumps(resp_data)
-    except urllib.error.HTTPError as http_err:
-        # Fall back to generateContent endpoint if Interactions endpoint returns 404/400
-        if http_err.code in (404, 400):
-            try:
-                endpoint_used = GENERATE_CONTENT_URL
-                req_gen = urllib.request.Request(
-                    f"{GENERATE_CONTENT_URL}?key={key}",
-                    data=json.dumps(generate_content_payload).encode("utf-8"),
-                    headers={"Content-Type": "application/json"}
-                )
-                with urllib.request.urlopen(req_gen, timeout=timeout) as resp_gen:
-                    gen_data = json.loads(resp_gen.read().decode("utf-8"))
-                    raw_response_text = gen_data["candidates"][0]["content"]["parts"][0]["text"]
-            except urllib.error.HTTPError as fallback_err:
-                err_body = fallback_err.read().decode("utf-8", errors="replace")[:400]
-                raise RuntimeError(f"Gemma 4 API HTTP {fallback_err.code}: {err_body}")
-        else:
+    for attempt in range(2):
+        try:
+            req_gen = urllib.request.Request(
+                f"{GENERATE_CONTENT_URL}?key={key}",
+                data=json.dumps(generate_content_payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req_gen, timeout=timeout) as resp_gen:
+                gen_data = json.loads(resp_gen.read().decode("utf-8"))
+                candidates = gen_data.get("candidates", [])
+                if candidates:
+                    raw_response_text = _extract_text_from_candidate(candidates[0])
+                else:
+                    raw_response_text = json.dumps(gen_data)
+            break
+        except urllib.error.HTTPError as http_err:
             err_body = http_err.read().decode("utf-8", errors="replace")[:400]
+            if http_err.code in (429, 503) and attempt == 0:
+                time.sleep(2.5)
+                continue
             raise RuntimeError(f"Gemma 4 API HTTP {http_err.code}: {err_body}")
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
-        raise RuntimeError(f"Network error communicating with Gemma 4 API: {getattr(e, 'reason', e)}")
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            if attempt == 0:
+                time.sleep(2)
+                continue
+            raise RuntimeError(f"Network error communicating with Gemma 4 API: {getattr(e, 'reason', e)}")
 
     # Parse JSON from model text
     parsed_json = _parse_model_json(raw_response_text)
@@ -454,9 +459,10 @@ def analyze_visual_architecture(image_input, evidence, user_question=None, api_k
     }
 
     # Initialize chat session bound to this exact PR and head SHA
-    session_key = f"{repo_ref}#{pr_number}@{head_sha}"
+    session_key = make_session_key(repo_ref, pr_number, head_sha)
     _CHAT_SESSIONS[session_key] = {
         "repo_ref": f"{repo_ref}#{pr_number}",
+        "pr_number": pr_number,
         "head_sha": head_sha,
         "evidence": evidence,
         "analysis": grounded_output,
@@ -490,17 +496,18 @@ def _parse_model_json(raw_text):
     return None
 
 
-def chat_visual_architecture(repo_ref, head_sha, user_message, api_key=None, timeout=30):
+def chat_visual_architecture(repo_ref, pr_number, head_sha, user_message, api_key=None, timeout=30):
     """Handle interactive maintainer follow-up questions bound to the current PR context.
 
-    Ensures context invalidation if the PR or head SHA changes.
+    Ensures context invalidation if the repository, PR number, or head SHA changes.
     """
-    session_key = f"{repo_ref}@{head_sha}"
+    session_key = make_session_key(repo_ref, pr_number, head_sha)
     session = _CHAT_SESSIONS.get(session_key)
 
     if not session:
+        clean_repo = str(repo_ref).split("#")[0]
         raise ValueError(
-            f"No active Visual Intelligence session found for {repo_ref} at {head_sha[:7]}. "
+            f"No active Visual Intelligence session found for {clean_repo}#{pr_number} at {str(head_sha)[:7]}. "
             "Please run 'Analyze Architecture with Gemma 4' first."
         )
 
@@ -535,28 +542,27 @@ def chat_visual_architecture(repo_ref, head_sha, user_message, api_key=None, tim
     chat_prompt += f"USER: {clean_message}\n\nASSISTANT: Answer concisely in 2-3 sentences, citing verified files."
 
     payload = {
-        "model": MODEL_ID,
-        "input": [{"type": "text", "text": chat_prompt}]
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": chat_prompt}]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2
+        }
     }
 
     try:
         req = urllib.request.Request(
-            INTERACTIONS_URL,
+            f"{GENERATE_CONTENT_URL}?key={key}",
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json", "x-goog-api-key": key}
+            headers={"Content-Type": "application/json"}
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            answer = ""
-            if "output" in data and isinstance(data["output"], list):
-                for part in data["output"]:
-                    if part.get("type") == "text":
-                        answer = part.get("text")
-                        break
-            elif "response" in data:
-                answer = data["response"]
-            else:
-                answer = str(data)
+            candidates = data.get("candidates", [])
+            answer = _extract_text_from_candidate(candidates[0]) if candidates else ""
     except Exception as e:
         raise RuntimeError(f"Chat request failed: {e}")
 
@@ -569,3 +575,4 @@ def chat_visual_architecture(repo_ref, head_sha, user_message, api_key=None, tim
         "head_sha": head_sha,
         "turns_count": len(history) // 2
     }
+

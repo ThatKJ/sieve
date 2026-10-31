@@ -150,6 +150,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           },
           body: JSON.stringify({
             repo_ref: msg.repo_ref,
+            pr_number: msg.pr_number,
             head_sha: msg.head_sha,
             message: msg.message
           })

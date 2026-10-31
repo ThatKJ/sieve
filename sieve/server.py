@@ -39,6 +39,8 @@ def health():
 
 
 class Handler(SimpleHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(WEB_DIR), **kwargs)
 
@@ -47,7 +49,11 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def log_message(self, fmt, *args):
-        if "/api/" in (args[0] if args else ""):
+        try:
+            rendered = (fmt % args) if args else fmt
+            if "/api/" in str(rendered):
+                super().log_message(fmt, *args)
+        except Exception:
             super().log_message(fmt, *args)
 
     def _check_origin(self):
@@ -134,14 +140,24 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(200, {"ok": True, "data": result})
 
             if url.path == "/api/gemma/chat":
-                repo_ref = body.get("repo_ref") or body.get("pr_ref")
+                repo_ref = body.get("repo_ref") or body.get("repo")
+                pr_number = body.get("pr_number") or body.get("number")
                 head_sha = body.get("head_sha")
                 message = body.get("message")
+                pr_ref = body.get("pr_ref")
 
-                if not repo_ref or not head_sha or not message:
-                    return self._json(400, {"error": "Missing required fields: repo_ref, head_sha, message."})
+                if pr_ref and not (repo_ref and pr_number):
+                    try:
+                        owner, repo, num = core.parse_pr_ref(pr_ref)
+                        repo_ref = f"{owner}/{repo}"
+                        pr_number = num
+                    except ValueError:
+                        pass
 
-                result = gemma.chat_visual_architecture(repo_ref, head_sha, message)
+                if not repo_ref or not pr_number or not head_sha or not message:
+                    return self._json(400, {"error": "Missing required fields: repo_ref, pr_number, head_sha, message."})
+
+                result = gemma.chat_visual_architecture(repo_ref, pr_number, head_sha, message)
                 return self._json(200, {"ok": True, "data": result})
 
             return self._json(404, {"error": "Unknown endpoint"})
@@ -149,6 +165,7 @@ class Handler(SimpleHTTPRequestHandler):
         except ValueError as e:
             return self._json(400, {"error": str(e)})
         except RuntimeError as e:
+            self.log_error("Gemma request error: %s", str(e)[:300])
             return self._json(502, {"error": str(e)})
         except Exception as e:
             self.log_error("Gemma analysis failed: %r", e)
@@ -181,7 +198,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "potentially_risky": sum(1 for r in rows if r.get("category") == "potentially_risky"),
                     "drafts": sum(1 for r in rows if r.get("draft")),
                 }
-                return self._json(200, {"owner": owner, "repo": repo, "summary": summary, "rows": rows})
+                return self._json(200, {"owner": owner, "repo": repo, "summary": summary, "rows": rows, "lifecycle": getattr(rows, "meta", {})})
             return self._json(404, {"error": "Unknown endpoint"})
         except ValueError as e:
             return self._json(400, {"error": str(e)})
