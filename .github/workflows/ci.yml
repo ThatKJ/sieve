@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # Standard library only: nothing to install. Tests use synthetic data and mocked HTTP,
+      # so no GitHub token or Gemma API key is needed (and none is provided).
+      - name: Compile all modules
+        run: python -m compileall -q sieve tests
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+  extension:
+    name: Extension checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Manifest is valid JSON
+        run: python3 -m json.tool extension/manifest.json > /dev/null
+      - name: JavaScript syntax
+        run: |
+          set -e
+          for f in extension/*.js extension/ui/*.js extension/popup/*.js web/*.js; do
+            node --check "$f"
+          done
