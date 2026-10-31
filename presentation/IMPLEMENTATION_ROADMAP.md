@@ -65,3 +65,10 @@ Re-check all 6 slides against the shipped product. Add the PR Control Center onl
 ## Recommended sequence
 
 Stage 2: steps 1 → 2 → 3, with Python tests → 4 (server security B1/B2 together) → 5 → 6 → 7 → docs (`docs/PR_CONTROLS.md`, README permissions, `SECURITY.md`) → `presentation/PR_CONTROL_IMPLEMENTATION.md`. Then Stage 3 QA, Stage 4 release (B3, B4), Stage 5 deploy (B5), Stage 6 presentation.
+
+## Progress after Stage 2 (2026-10-31)
+
+- B1 (Host/Origin hardening) and B2 (writes opt-in): **done and tested**.
+- PR Control Center steps 1–7: **implemented, unit-tested with mocks, connected to the UI**. Not yet verified against a real repository with a real write.
+- B3/B4: another session has committed most Stage 2 files (`dc722c5`..`111345e`); state must be reconciled in Stage 4.
+- Still open: README/docs/PR_CONTROLS.md user guide, Ollama toggle, merge-queue enqueue, Gemma key moved to header.
