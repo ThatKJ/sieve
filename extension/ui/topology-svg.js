@@ -289,6 +289,59 @@ window.SieveTopology = (function () {
     container.append(svg);
   }
 
-  return { render };
+  async function exportPng(svgOrContainer) {
+    let svg = svgOrContainer;
+    if (svg && svg.nodeName !== "svg") {
+      svg = svg.querySelector("svg");
+    }
+    if (!svg) {
+      throw new Error("No SVG impact topology element found to export.");
+    }
+
+    const clone = svg.cloneNode(true);
+    if (!clone.getAttribute("xmlns")) {
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    }
+
+    const width = Math.max(800, parseInt(svg.getAttribute("width") || svg.viewBox?.baseVal?.width || 800, 10));
+    const height = Math.max(400, parseInt(svg.getAttribute("height") || svg.viewBox?.baseVal?.height || 400, 10));
+    clone.setAttribute("width", width);
+    clone.setAttribute("height", height);
+    clone.style.background = "#faf9f6";
+
+    const svgXml = new XMLSerializer().serializeToString(clone);
+    const dataUri = "data:image/svg+xml;charset=utf-8;base64," + btoa(unescape(encodeURIComponent(svgXml)));
+
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#faf9f6";
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          const pngDataUrl = canvas.toDataURL("image/png");
+          const base64Data = pngDataUrl.replace(/^data:image\/png;base64,/, "");
+          resolve({
+            dataUrl: pngDataUrl,
+            base64: base64Data,
+            width,
+            height
+          });
+        } catch (err) {
+          reject(new Error("Canvas rasterization failed: " + err.message));
+        }
+      };
+      img.onerror = () => {
+        reject(new Error("Failed to load SVG into raster image for Gemma analysis."));
+      };
+      img.src = dataUri;
+    });
+  }
+
+  return { render, exportPng };
 })();
 

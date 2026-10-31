@@ -60,6 +60,12 @@
         ? (d.model_installed ? "ready (running)" : "model missing")
         : "not detected";
 
+      if ($("gemma-status")) {
+        $("gemma-status").textContent = d.gemma_configured
+          ? `${d.gemma_model} (active)`
+          : "needs key (.env)";
+      }
+
       $("github-auth").textContent = d.github_auth
         ? "token active (5000 req/h)"
         : "unauthenticated (60 req/h)";

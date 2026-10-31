@@ -109,6 +109,63 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true, timestamp: Date.now() });
     return true;
   }
+
+  if (msg.type === "ANALYZE_GEMMA_VISUAL") {
+    getEngineUrl().then(async (engineUrl) => {
+      try {
+        const res = await fetch(`${engineUrl}/api/gemma/analyze`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "Sieve-Workspace-Extension"
+          },
+          body: JSON.stringify({
+            image_b64: msg.image_b64,
+            pr_ref: msg.pr_ref,
+            evidence: msg.evidence,
+            question: msg.question
+          })
+        });
+        const json = await res.json().catch(() => ({ error: `Engine returned ${res.status}` }));
+        if (!res.ok || !json.ok) {
+          sendResponse({ ok: false, error: json.error || `HTTP ${res.status}` });
+        } else {
+          sendResponse({ ok: true, data: json.data });
+        }
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message || "Failed to reach Sieve Engine for Gemma analysis." });
+      }
+    });
+    return true;
+  }
+
+  if (msg.type === "CHAT_GEMMA_VISUAL") {
+    getEngineUrl().then(async (engineUrl) => {
+      try {
+        const res = await fetch(`${engineUrl}/api/gemma/chat`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Requested-With": "Sieve-Workspace-Extension"
+          },
+          body: JSON.stringify({
+            repo_ref: msg.repo_ref,
+            head_sha: msg.head_sha,
+            message: msg.message
+          })
+        });
+        const json = await res.json().catch(() => ({ error: `Engine returned ${res.status}` }));
+        if (!res.ok || !json.ok) {
+          sendResponse({ ok: false, error: json.error || `HTTP ${res.status}` });
+        } else {
+          sendResponse({ ok: true, data: json.data });
+        }
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message || "Failed to reach Sieve Engine for Gemma chat." });
+      }
+    });
+    return true;
+  }
 });
 
 // Update badge on install

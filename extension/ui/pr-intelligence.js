@@ -173,6 +173,240 @@ window.SievePRIntelligence = (function () {
     ]);
   }
 
+  function buildVisualIntelligence(p, impact, findings, topo) {
+    const prRef = `${p.owner}/${p.repo}#${p.number}`;
+    const headSha = p.head_sha || "";
+
+    const viContainer = el("div", { class: "sieve-vi-block" });
+
+    const head = el("div", { class: "sieve-vi-head" }, [
+      el("div", { class: "sieve-vi-title-box" }, [
+        el("h4", {}, [
+          el("span", { text: "🔮" }),
+          "Visual Architecture Intelligence"
+        ]),
+        el("p", { text: "Multimodal reasoning over the repository impact graph and deterministic AST evidence." })
+      ]),
+      el("div", { class: "sieve-vi-model-badge" }, [
+        el("span", { class: "sieve-vi-dot" }),
+        "gemma-4-26b-a4b-it"
+      ])
+    ]);
+
+    const contentBox = el("div", { class: "sieve-vi-content-box" });
+
+    const triggerBox = el("div", { class: "sieve-vi-trigger-box" }, [
+      el("button", {
+        type: "button",
+        class: "btn-sieve primary",
+        text: "Analyze Architecture with Gemma 4",
+        onclick: () => runAnalysis()
+      }),
+      el("span", {
+        class: "sieve-vi-hint",
+        text: "Exports this blast radius graph as PNG and transmits it alongside AST dependencies in a single multimodal inference request."
+      })
+    ]);
+
+    contentBox.append(triggerBox);
+    viContainer.append(head, contentBox);
+
+    async function runAnalysis() {
+      contentBox.replaceChildren(
+        el("div", { class: "sieve-vi-loading" }, [
+          el("span", { class: "sieve-ws-spinner", "aria-hidden": "true" }),
+          "Rasterizing topology graph & analyzing with gemma-4-26b-a4b-it…"
+        ])
+      );
+
+      try {
+        let imageB64 = "";
+        let imgMeta = null;
+        if (window.SieveTopology && window.SieveTopology.exportPng) {
+          const raster = await window.SieveTopology.exportPng(topo);
+          imageB64 = raster.base64;
+          imgMeta = { width: raster.width, height: raster.height, dataUrl: raster.dataUrl };
+        } else {
+          throw new Error("SieveTopology.exportPng is unavailable.");
+        }
+
+        chrome.runtime.sendMessage({
+          type: "ANALYZE_GEMMA_VISUAL",
+          image_b64: imageB64,
+          pr_ref: prRef
+        }, (res) => {
+          if (!res || !res.ok) {
+            const errMsg = res?.error || "Gemma 4 visual intelligence request failed.";
+            contentBox.replaceChildren(
+              el("div", { class: "sieve-act-footer" }, [
+                el("div", { class: "sieve-act-error" }, [
+                  el("strong", { text: "Analysis Unsuccessful" }),
+                  el("p", { text: errMsg }),
+                  errMsg.includes("key") ? el("p", { class: "sieve-act-help", text: "Add GEMMA_API_KEY to your .env file and restart `python3 -m sieve --serve`." }) : null,
+                  el("div", { class: "sieve-act-actions" }, [
+                    el("button", { type: "button", class: "btn-sieve primary", text: "Retry", onclick: () => runAnalysis() })
+                  ])
+                ])
+              ])
+            );
+            return;
+          }
+
+          renderResults(res.data, imgMeta);
+        });
+      } catch (err) {
+        contentBox.replaceChildren(
+          el("div", { class: "sieve-act-error" }, [
+            el("strong", { text: "Rasterization failed" }),
+            el("p", { text: err.message || String(err) }),
+            el("button", { type: "button", class: "btn-sieve", text: "Retry", onclick: () => runAnalysis() })
+          ])
+        );
+      }
+    }
+
+    function renderResults(data, imgMeta) {
+      const diag = data.diagnostic || {};
+      const grounding = data.grounding || {};
+      const risks = data.potential_risks || [];
+      const tests = data.missing_test_scenarios || [];
+      const implications = data.architectural_implications || [];
+
+      const resultNodes = [];
+
+      if (imgMeta?.dataUrl) {
+        const previewRow = el("div", { class: "sieve-vi-preview-bar" }, [
+          el("span", { text: `Attached Topology Image (${imgMeta.width}×${imgMeta.height} PNG)` }),
+          el("img", { src: imgMeta.dataUrl, alt: "Rasterized Topology Graph", class: "sieve-vi-preview-thumb" })
+        ]);
+        resultNodes.push(previewRow);
+      }
+
+      if (data.summary) {
+        resultNodes.push(el("div", { class: "sieve-vi-summary", text: data.summary }));
+      }
+
+      if (implications.length) {
+        resultNodes.push(el("div", { class: "sieve-vi-section" }, [
+          el("h5", { class: "sieve-vi-section-title", text: "Architectural Implications" }),
+          el("ul", { class: "sieve-ws-files" }, implications.map((imp) => el("li", { text: imp })))
+        ]));
+      }
+
+      if (risks.length) {
+        resultNodes.push(el("div", { class: "sieve-vi-section" }, [
+          el("h5", { class: "sieve-vi-section-title", text: "Potential Architectural Risks" }),
+          el("div", { class: "sieve-vi-list" }, risks.map((r) => el("div", { class: "sieve-vi-risk-card" }, [
+            el("div", { class: "sieve-vi-risk-header" }, [
+              el("strong", { text: r.title || "Risk" }),
+              el("div", { style: "display: flex; gap: 6px;" }, [
+                el("span", { class: `sieve-vi-pill ${r.severity || "medium"}`, text: r.severity || "medium" }),
+                el("span", { class: `sieve-vi-pill ${r.verified ? "verified" : "hypothesis"}`, text: r.verified ? "Verified in AST" : "Model Hypothesis" })
+              ])
+            ]),
+            el("p", { class: "sieve-vi-desc", text: r.explanation || "" }),
+            r.evidence ? el("code", { style: "font-size: 11px; color: var(--sieve-text-secondary);", text: `Citation: ${r.evidence}` }) : null
+          ])))
+        ]));
+      }
+
+      if (tests.length) {
+        resultNodes.push(el("div", { class: "sieve-vi-section" }, [
+          el("h5", { class: "sieve-vi-section-title", text: "Suggested Missing Test Scenarios" }),
+          el("div", { class: "sieve-vi-list" }, tests.map((t) => el("div", { class: "sieve-vi-test-card" }, [
+            el("div", { class: "sieve-vi-test-header" }, [
+              el("code", { text: t.target || "Module" }),
+              el("span", { class: "sieve-vi-pill low", text: t.test_type || "test" })
+            ]),
+            el("p", { class: "sieve-vi-desc", text: t.scenario || "" })
+          ])))
+        ]));
+      }
+
+      resultNodes.push(el("div", { class: "sieve-vi-diag-bar", text: `Inference: ${diag.model_id || "gemma-4-26b-a4b-it"} · Image: ${diag.image_dimensions || "PNG"} (${diag.image_bytes || 0} bytes) · Grounding: ${grounding.status || "verified"} (${grounding.verified_symbols_cited || 0} symbols)` }));
+
+      const chatBox = buildChatBox(prRef, headSha);
+      resultNodes.push(chatBox);
+
+      contentBox.replaceChildren(el("div", { class: "sieve-vi-content" }, resultNodes));
+    }
+
+    function buildChatBox(repoRef, headSha) {
+      const box = el("div", { class: "sieve-vi-chat-box" });
+      const historyEl = el("div", { class: "sieve-vi-history" });
+
+      const quickChips = el("div", { class: "sieve-vi-quick-chips" }, [
+        "Which test should I run first?",
+        "Why are downstream modules affected?",
+        "What are the contract breaking risks?"
+      ].map((q) => el("button", {
+        type: "button",
+        class: "sieve-vi-chip",
+        text: q,
+        onclick: () => sendQuestion(q)
+      })));
+
+      const input = el("input", {
+        type: "text",
+        class: "sieve-vi-chat-input",
+        placeholder: "Ask Gemma 4 about this pull request architecture…"
+      });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && input.value.trim()) {
+          sendQuestion(input.value.trim());
+          input.value = "";
+        }
+      });
+
+      const sendBtn = el("button", {
+        type: "button",
+        class: "btn-sieve",
+        text: "Ask",
+        onclick: () => {
+          if (input.value.trim()) {
+            sendQuestion(input.value.trim());
+            input.value = "";
+          }
+        }
+      });
+
+      const inputRow = el("div", { class: "sieve-vi-input-row" }, [input, sendBtn]);
+
+      box.append(
+        el("strong", { style: "font-size: 12px; color: var(--sieve-text-primary);", text: "Ask Gemma 4 Follow-up" }),
+        quickChips,
+        historyEl,
+        inputRow
+      );
+
+      function sendQuestion(q) {
+        historyEl.append(el("div", { class: "sieve-vi-msg user", text: q }));
+        const loadingMsg = el("div", { class: "sieve-vi-msg assistant", text: "Reasoning with Gemma 4…" });
+        historyEl.append(loadingMsg);
+        historyEl.scrollTop = historyEl.scrollHeight;
+
+        chrome.runtime.sendMessage({
+          type: "CHAT_GEMMA_VISUAL",
+          repo_ref: repoRef,
+          head_sha: headSha,
+          message: q
+        }, (res) => {
+          if (!res || !res.ok) {
+            loadingMsg.textContent = res?.error || "Gemma 4 chat failed.";
+            loadingMsg.style.color = "var(--sieve-status-fail)";
+          } else {
+            loadingMsg.textContent = res.data.reply || "No response received.";
+          }
+          historyEl.scrollTop = historyEl.scrollHeight;
+        });
+      }
+
+      return box;
+    }
+
+    return viContainer;
+  }
+
   function render(s, d) {
     const p = d.pr || {};
     const impact = d.impact || {};
@@ -263,6 +497,7 @@ window.SievePRIntelligence = (function () {
           changed.length ? block("Change summary", "Files this pull request touches.", changeList) : null,
           block("Deterministic blast radius", "Every connection comes from an import statement parsed from the repository.", [topo,
             limits.length ? el("p", { class: "sieve-ws-hint", text: limits.join(" · ") }) : null]),
+          buildVisualIntelligence(p, impact, findings, topo),
           block("Claim vs reality", "What the pull request says, checked against what it contains.", ledger.some(Boolean) ? ledger.filter(Boolean) : el("p", { class: "sieve-ws-sub", text: "No findings." })),
         ]),
         el("aside", { class: "sieve-ws-side" }, [
