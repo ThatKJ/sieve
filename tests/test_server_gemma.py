@@ -41,7 +41,7 @@ class TestServerGemmaEndpoints(unittest.TestCase):
             headers[k] = v
 
         handler = server.Handler.__new__(server.Handler)
-        handler.headers = {"Origin": "chrome-extension://dummy-extension-id"}
+        handler.headers = {"Origin": f"chrome-extension://{server.SIEVE_EXTENSION_ID}", "Host": "127.0.0.1:8787"}
         handler.send_header = mock_send_header
         handler._cors_headers()
 
@@ -58,6 +58,7 @@ class TestServerGemmaEndpoints(unittest.TestCase):
         handler.path = "/api/gemma/analyze"
         handler.headers = {
             "Origin": "http://localhost:8787",
+            "Host": "localhost:8787",
             "Content-Length": "120"
         }
         req_body = json.dumps({
@@ -95,6 +96,7 @@ class TestServerGemmaEndpoints(unittest.TestCase):
         handler.path = "/api/gemma/chat"
         handler.headers = {
             "Origin": "http://localhost:8787",
+            "Host": "localhost:8787",
             "Content-Length": "120"
         }
         req_body = json.dumps({

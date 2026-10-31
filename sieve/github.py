@@ -37,27 +37,77 @@ def _ssl_context():
 
 SSL_CONTEXT = _ssl_context()
 _token = None
+_token_source = "none"  # "GITHUB_TOKEN", "gh_cli" or "none": shown in diagnostics; the token itself never is
 
 
 def _get_token():
-    global _token
+    global _token, _token_source
     if _token is None:
         _token = os.environ.get("GITHUB_TOKEN") or ""
-        if not _token:
+        _token_source = "GITHUB_TOKEN" if _token else "none"
+        # An explicit GITHUB_TOKEN always wins, even if it is invalid: never silently switch to another login.
+        if not _token and os.environ.get("SIEVE_GH_FALLBACK", "1") != "0":
             try:  # fall back to the gh CLI's login, if present
                 _token = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=5).stdout.strip()
             except (OSError, subprocess.TimeoutExpired):
                 _token = ""
+            _token_source = "gh_cli" if _token else "none"
     return _token
 
 
-def get(path, params=None):
-    """GET an API path, returning parsed JSON. Cached by URL; offline mode reads cache only."""
+def token_source():
+    _get_token()
+    return _token_source
+
+
+TOKEN_KINDS = {"ghp_": "classic_pat", "gho_": "oauth", "ghu_": "github_app_user", "ghs_": "github_app_installation",
+               "github_pat_": "fine_grained_pat"}
+_token_info = None
+
+
+def token_info(refresh=False):
+    """What the configured token is and can do, without revealing it. Cached for the engine's lifetime.
+
+    Classic and OAuth tokens (including `gh auth login`) report their scopes in X-OAuth-Scopes: `repo`
+    (or `public_repo`) means GitHub will accept writes. Fine-grained and GitHub App tokens carry
+    per-repository permissions GitHub does not list up front, so their write capability is "unknown"
+    until a repository-level check or an actual request.
+    """
+    global _token_info
+    if _token_info is not None and not refresh:
+        return _token_info
+    token = _get_token()
+    kind = next((k for p, k in TOKEN_KINDS.items() if token.startswith(p)), "unknown") if token else None
+    info = {"source": _token_source, "kind": kind, "login": None, "scopes": None, "write_capable": "none" if not token else "unknown",
+            "valid": None}
+    if token and not OFFLINE:
+        req = urllib.request.Request(API + "/user", headers={"Accept": "application/vnd.github+json", "User-Agent": "sieve-pr-intake",
+                                                             "Authorization": f"Bearer {token}"})
+        try:
+            with urllib.request.urlopen(req, timeout=10, context=SSL_CONTEXT) as resp:
+                info["login"] = json.loads(resp.read()).get("login")
+                scopes = resp.headers.get("X-OAuth-Scopes")
+            info["valid"] = True
+            if scopes is not None and kind in ("classic_pat", "oauth", "unknown"):
+                info["scopes"] = sorted(s.strip() for s in scopes.split(",") if s.strip())
+                info["write_capable"] = "yes" if {"repo", "public_repo"} & set(info["scopes"]) else "no"
+        except urllib.error.HTTPError as e:
+            info["valid"] = False if e.code == 401 else None
+        except urllib.error.URLError:
+            pass  # unknown: never guess
+    if info["valid"] is not None or not token:  # a network failure is not cached; the next call retries
+        _token_info = info
+    return info
+
+
+def get(path, params=None, ttl=None):
+    """GET an API path, returning parsed JSON. Cached by URL for `ttl` seconds (default CACHE_TTL); offline mode reads cache only."""
     url = API + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
     cache_file = CACHE_DIR / (hashlib.sha256(url.encode()).hexdigest()[:24] + ".json")
-    if cache_file.exists() and (OFFLINE or time.time() - cache_file.stat().st_mtime < CACHE_TTL):
+    ttl = CACHE_TTL if ttl is None else ttl
+    if cache_file.exists() and (OFFLINE or time.time() - cache_file.stat().st_mtime < ttl):
         return json.loads(cache_file.read_text())
     if OFFLINE:
         raise GitHubError(f"Offline mode and no cached copy of {path}", status=503)
@@ -155,6 +205,8 @@ def graphql(query, variables, ttl=GRAPHQL_TTL):
         with urllib.request.urlopen(req, timeout=30, context=SSL_CONTEXT) as resp:
             payload = json.loads(resp.read())
     except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise GitHubError("GitHub rejected the token (expired or revoked). Run `gh auth login` or update GITHUB_TOKEN.", status=401) from None
         if e.code in (403, 429):
             raise GitHubError("GitHub rate limit hit on the GraphQL API.", status=429) from None
         raise GitHubError(f"GitHub GraphQL returned HTTP {e.code}", status=502) from None

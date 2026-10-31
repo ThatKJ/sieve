@@ -272,14 +272,16 @@ class ServerSecurity(unittest.TestCase):
         self.assertTrue(_is_allowed_origin(None))
         self.assertTrue(_is_allowed_origin(""))
 
-        # Chrome extension origins are allowed
-        self.assertTrue(_is_allowed_origin("chrome-extension://hlddfekemfnlffmgohhoggokgcahmecb"))
-        self.assertTrue(_is_allowed_origin("chrome-extension://abcdefghijklmnop"))
+        # Only the pinned Sieve extension is trusted; any other extension ID is refused
+        from sieve.server import SIEVE_EXTENSION_ID
+        self.assertTrue(_is_allowed_origin(f"chrome-extension://{SIEVE_EXTENSION_ID}"))
+        self.assertFalse(_is_allowed_origin("chrome-extension://hlddfekemfnlffmgohhoggokgcahmecb"))
+        self.assertFalse(_is_allowed_origin("chrome-extension://abcdefghijklmnop"))
 
-        # Localhost / 127.0.0.1 origins are allowed
+        # Only the engine's own origin; other local ports need SIEVE_DEV_ORIGINS
         self.assertTrue(_is_allowed_origin("http://127.0.0.1:8787"))
         self.assertTrue(_is_allowed_origin("http://localhost:8787"))
-        self.assertTrue(_is_allowed_origin("http://127.0.0.1:3000"))
+        self.assertFalse(_is_allowed_origin("http://127.0.0.1:3000"))
 
         # Malicious external origins are rejected
         self.assertFalse(_is_allowed_origin("http://evil.com"))

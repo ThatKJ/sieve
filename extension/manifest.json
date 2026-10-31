@@ -3,6 +3,7 @@
   "name": "Sieve Workspace — GitHub for Maintainers",
   "version": "1.0.0",
   "description": "Maintainer-first contribution management and repository intelligence platform directly inside GitHub.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzGvyT435TSHHd/HgY66aZTcRxJtX6bTUpymC/tuvfpjOl14DqwJ/46nzdmnrr76TTo+cvlX8iyVhuhn9F6bx4QjJnTHPoHtHXVzwTFwC52gVWlDqgzXb90BraGtbVLd1roci8qT7UxOz+2UzmNKxuZ0YarqWxB0nbdh+3KVk2gXL4K7R103tS8HTI2ZxB3+jojP1YT9EVcEtRmR69CPLUrc28g5vXOOJIMUZT11lRLnMvzk4UBHZGfieI7Gg8Beh29PF3tgfDF+gemC5Skj5SsUvbslf90IENAHqcdinHscI3nmoKt1fjz4qIqcaoBCtLqd3ln63KzZSgA7nTxw5xwIDAQAB",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -56,4 +57,3 @@
     }
   ]
 }
-

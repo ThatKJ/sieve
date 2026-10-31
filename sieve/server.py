@@ -1,24 +1,58 @@
-"""Tiny stdlib web server: static UI + JSON API. Binds to localhost only."""
+"""Tiny stdlib web server: static UI + JSON API. Binds to localhost only.
+
+Request trust (see SECURITY.md):
+  * Host must name this engine (127.0.0.1 / localhost / [::1] on its port, or SIEVE_ALLOWED_HOSTS):
+    defeats DNS rebinding.
+  * Origin, when present, must exactly match the pinned Sieve extension, the engine's own origin, or
+    SIEVE_DEV_ORIGINS. Any other extension, port, scheme, "null" or malformed origin is refused.
+  * Write routes additionally require an Origin (browsers always send one on POST), so only the
+    Sieve extension or the engine's own page can trigger a GitHub write.
+"""
 import json
 import os
+import re
 import urllib.parse
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import atlas, core, gemma, github, llm
+from . import actions, atlas, core, gemma, github, llm
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+ENGINE_PORT = 8787
+# The ID Chrome derives from the public "key" in extension/manifest.json (identical on every machine).
+SIEVE_EXTENSION_ID = "nffobfkdjlmdldapfdajnignlciihlab"
+EXTENSION_ORIGIN_RE = re.compile(r"chrome-extension://([a-p]{32})")
 
 
-def _is_allowed_origin(origin):
-    if not origin:
+def _env_list(name):
+    return {v.strip() for v in os.environ.get(name, "").split(",") if v.strip()}
+
+
+def trusted_extension_ids():
+    return {SIEVE_EXTENSION_ID} | _env_list("SIEVE_EXTENSION_IDS")
+
+
+def _is_allowed_origin(origin, port=None):
+    """Exact-match origin policy. A missing Origin (curl, same-origin GET) is allowed for reads only."""
+    if origin is None or origin == "":
         return True
-    origin = origin.strip().rstrip("/")
-    if origin.startswith("chrome-extension://"):
-        return True
-    parsed = urllib.parse.urlparse(origin)
-    return parsed.hostname in ("localhost", "127.0.0.1")
+    port = port or ENGINE_PORT
+    m = EXTENSION_ORIGIN_RE.fullmatch(origin)
+    if m:
+        return m.group(1) in trusted_extension_ids()
+    return origin in {f"http://127.0.0.1:{port}", f"http://localhost:{port}", f"http://[::1]:{port}"} | _env_list("SIEVE_DEV_ORIGINS")
+
+
+def _is_allowed_host(values, port=None):
+    """`values` is every Host header sent. Exactly one, naming this engine, is accepted."""
+    port = port or ENGINE_PORT
+    if len(values) != 1 or not isinstance(values[0], str):
+        return False
+    allowed = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"} | {h.lower() for h in _env_list("SIEVE_ALLOWED_HOSTS")}
+    if port == 80:
+        allowed |= {"127.0.0.1", "localhost", "[::1]"}
+    return values[0].strip().lower() in allowed
 
 
 def health():
@@ -33,6 +67,8 @@ def health():
         "model_installed": bool(models and llm.MODEL in models),
         "offline": github.OFFLINE,
         "github_auth": bool(github._get_token()),
+        "github_auth_source": github.token_source(),
+        "writes_enabled": actions.writes_enabled(),
         "gemma_configured": gemma.is_configured(),
         "gemma_model": gemma.MODEL_ID,
     }
@@ -56,21 +92,35 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:
             super().log_message(fmt, *args)
 
-    def _check_origin(self):
+    def _port(self):
+        server = getattr(self, "server", None)
+        return server.server_address[1] if server else ENGINE_PORT
+
+    def _deny(self, message):
+        self.send_response(403)
+        self.send_header("Content-Type", "application/json")
+        body = json.dumps({"error": message}).encode()
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return False
+
+    def _check_origin(self, require_origin=False):
+        """Host, then Origin. Named for its original role; every request passes through it first."""
+        get_all = getattr(self.headers, "get_all", None)
+        hosts = (get_all("Host") or []) if get_all else ([self.headers["Host"]] if "Host" in self.headers else [])
+        if not _is_allowed_host(hosts, self._port()):
+            return self._deny("Forbidden: unexpected Host header")
         origin = self.headers.get("Origin")
-        if origin and not _is_allowed_origin(origin):
-            self.send_response(403)
-            self.send_header("Content-Type", "application/json")
-            body = json.dumps({"error": "Forbidden: unauthorized origin"}).encode()
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return False
+        if require_origin and not origin:
+            return self._deny("Forbidden: write requests must come from the Sieve extension")
+        if origin is not None and not _is_allowed_origin(origin, self._port()):
+            return self._deny("Forbidden: unauthorized origin")
         return True
 
     def _cors_headers(self):
         origin = self.headers.get("Origin")
-        if origin and _is_allowed_origin(origin):
+        if origin and _is_allowed_origin(origin, self._port()):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
@@ -93,9 +143,9 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        if not self._check_origin():
-            return
         url = urllib.parse.urlparse(self.path)
+        if not self._check_origin(require_origin=url.path == "/api/pr/action"):
+            return
         if not url.path.startswith("/api/"):
             return self._json(404, {"error": "Unknown endpoint"})
 
@@ -113,6 +163,9 @@ class Handler(SimpleHTTPRequestHandler):
             body = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
         except Exception as e:
             return self._json(400, {"error": f"Invalid JSON payload: {e}"})
+
+        if url.path == "/api/pr/action":
+            return self._pr_action(body)
 
         try:
             if url.path == "/api/gemma/analyze":
@@ -171,6 +224,26 @@ class Handler(SimpleHTTPRequestHandler):
             self.log_error("Gemma analysis failed: %r", e)
             return self._json(500, {"error": "Analysis failed unexpectedly. Check the server log."})
 
+    def _pr_action(self, body):
+        """One human-confirmed GitHub write. Every field is re-validated here; the extension is not trusted."""
+        if not isinstance(body, dict):
+            return self._json(400, {"error": "Expected a JSON object."})
+        try:
+            owner, repo, number = core.parse_pr_ref(body.get("pr") if isinstance(body.get("pr"), str) else "")
+            result = actions.perform(owner, repo, number, body.get("action"), body.get("params", {}),
+                                     body.get("expected_head_sha"), body.get("request_id"))
+            self.log_message("/api/pr/action %s on %s/%s#%s: done", result["action"], owner, repo, number)
+            return self._json(200, result)
+        except actions.ActionError as e:
+            return self._json(e.status, {"error": str(e)})
+        except github.GitHubError as e:
+            return self._json(e.status or 502, {"error": str(e)})
+        except ValueError as e:
+            return self._json(400, {"error": str(e)})
+        except Exception as e:  # never leak a traceback (or anything else) to the page
+            self.log_error("pr action failed: %r", type(e).__name__)
+            return self._json(500, {"error": "The action failed unexpectedly. Refresh to see GitHub's current state."})
+
     def do_GET(self):
         if not self._check_origin():
             return
@@ -184,6 +257,8 @@ class Handler(SimpleHTTPRequestHandler):
             if url.path == "/api/analyze":
                 owner, repo, number = core.parse_pr_ref(q.get("pr", ""))
                 return self._json(200, core.analyze(owner, repo, number, use_model=q.get("model") == "1"))
+            if url.path == "/api/pr/controls":
+                return self._json(200, actions.controls(*core.parse_pr_ref(q.get("pr", ""))))
             if url.path == "/api/atlas":
                 if q.get("pr"):
                     return self._json(200, atlas.atlas_for_pr(*core.parse_pr_ref(q["pr"])))
@@ -210,6 +285,9 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def run(port=8787):
+    global ENGINE_PORT
+    ENGINE_PORT = port
     host = os.environ.get("SIEVE_HOST", "127.0.0.1")
-    print(f"Sieve running at http://{host}:{port}  (model: {llm.MODEL}, offline: {github.OFFLINE})")
+    print(f"Sieve running at http://{host}:{port}  (model: {llm.MODEL}, offline: {github.OFFLINE}, "
+          f"GitHub auth: {github.token_source()}, writes: {'ENABLED' if actions.writes_enabled() else 'off (read-only)'})")
     ThreadingHTTPServer((host, port), Handler).serve_forever()

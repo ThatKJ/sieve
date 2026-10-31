@@ -4,34 +4,49 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sieve: GitHub, Redesigned for Maintainers</title>
-  <meta name="description" content="Sieve maps repository import graphs, overlays PR impact, and verifies contributor claims against actual code. Read-only, local open-weight and multimodal Gemma 4 intelligence.">
+  <meta name="description" content="GitHub tells you what changed. Sieve reveals what it could affect. Local-first deterministic AST analysis and multimodal Gemma 4 intelligence for GitHub maintainers.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><g fill='%231d1d1f'><circle cx='3' cy='3' r='1.5'/><circle cx='8' cy='3' r='1.5'/><circle cx='13' cy='3' r='1.5'/><circle cx='3' cy='8' r='1.5'/><circle cx='8' cy='8' r='1.5'/><circle cx='13' cy='8' r='1.5'/><circle cx='8' cy='13' r='1.5'/></g></svg>">
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
 
+  <!-- TOP FLOATING NAVBAR -->
   <header class="toolbar glass" role="banner">
-    <a class="brand" href="/" aria-label="Sieve, home">
-      <span class="mesh" aria-hidden="true"></span>sieve
-    </a>
+    <div class="nav-left">
+      <a class="brand" href="/" aria-label="Sieve, home">
+        <span class="mesh" aria-hidden="true"></span>
+        <span class="brand-text">sieve</span>
+      </a>
 
-    <nav class="site-nav" aria-label="Main Navigation">
-      <a href="#overview" class="nav-link">Overview</a>
-      <a href="#how-it-works" class="nav-link">How It Works</a>
-      <a href="#demo" class="nav-link">Demo</a>
-      <a href="#install" class="nav-link">Install</a>
-      <a href="#privacy" class="nav-link">Privacy</a>
-    </nav>
+      <nav class="site-nav" aria-label="Main Navigation">
+        <a href="#overview" class="nav-link">Overview</a>
+        <a href="#features" class="nav-link">Features</a>
+        <a href="#demo" class="nav-link">Demo PRs</a>
+        <a href="#screenshots" class="nav-link">Showcase</a>
+        <a href="#architecture" class="nav-link">Architecture</a>
+        <a href="#security" class="nav-link">Security</a>
+      </nav>
+    </div>
 
-    <form id="form" class="field" role="search" autocomplete="off">
-      <label for="target" class="sr">Pull request or repository</label>
-      <svg class="field-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input id="target" spellcheck="false" placeholder="owner/repo#123 or owner/repo">
-      <button type="submit" id="go" class="btn primary">Inspect</button>
-    </form>
+    <div class="nav-right">
+      <form id="form" class="field" role="search" autocomplete="off">
+        <label for="target" class="sr">Pull request or repository</label>
+        <svg class="field-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="target" spellcheck="false" placeholder="owner/repo#123 or repo">
+        <button type="submit" id="go" class="btn primary btn-nav-inspect">Inspect</button>
+      </form>
 
-    <div class="status" id="status" aria-live="polite"></div>
+      <div class="status" id="status" aria-live="polite"></div>
+
+      <a href="https://github.com/ThatKJ/sieve" target="_blank" rel="noopener" class="btn btn-github-nav">
+        <svg class="github-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </div>
   </header>
 
   <main id="main">
@@ -40,105 +55,255 @@
     <!-- MAIN HOME / PUBLIC PRODUCT VIEW -->
     <section id="home" class="view">
       
-      <!-- HERO -->
+      <!-- HERO SECTION -->
       <section id="overview" class="hero-section">
         <div class="hero-badge">
-          <span class="dot-live" aria-hidden="true"></span>
-          <span>Sieve Hackathon Release · Local AST + Gemma 4 Visual Intelligence</span>
+          <span class="badge-star" aria-hidden="true">★</span>
+          <span>GitHub Hackathon Release · Local AST + Gemma 4 Visual Intelligence</span>
         </div>
-        <h1 class="display">See what a pull request really changes.</h1>
-        <p class="lede">
-          Sieve is a GitHub-native intelligence layer for maintainers. It maps your repository's import graph, computes deterministic blast radius, and verifies contributor claims against actual code reality.
+
+        <h1 class="display hero-title">
+          GitHub tells you what changed.<br>
+          Sieve reveals what it <span class="hero-highlight">could affect.</span>
+        </h1>
+
+        <p class="lede hero-lede">
+          Sieve is a local-first maintainer workspace that computes deterministic repository blast radius, flags broken downstream imports, and grounds AI reasoning in verified AST facts.
         </p>
 
         <div class="hero-actions">
-          <a href="#demo" class="btn primary">Explore Live Demo PRs</a>
-          <a href="#how-it-works" class="btn ghost">How It Works</a>
-          <a href="https://github.com/ThatKJ/sieve-demo-target" target="_blank" rel="noopener" class="btn ghost">
-            <span>Demo Repo</span>
-            <svg class="icon-external" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3.75 2h3.5a.75.75 0 0 1 0 1.5H4.5v8.5h8.5V9.25a.75.75 0 0 1 1.5 0v3.5A1.25 1.25 0 0 1 13.25 14H3.75A1.25 1.25 0 0 1 2.5 12.75V3.25C2.5 2.56 3.06 2 3.75 2Zm6.5 0h3.5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V4.56L8.53 9.03a.75.75 0 0 1-1.06-1.06L11.94 3.5h-1.69a.75.75 0 0 1 0-1.5Z"/></svg>
+          <a href="#demo" class="btn primary pill-cta">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M11.251.068a.5.5 0 0 1 .42.58L10.026 6H14.5a.5.5 0 0 1 .372.832l-9.5 10.5a.5.5 0 0 1-.853-.487L5.974 10H1.5a.5.5 0 0 1-.372-.832l9.5-10.5a.5.5 0 0 1 .623-.1z"/></svg>
+            <span>Explore Live Demo PRs</span>
           </a>
-          <a href="#install" class="btn ghost">Install Extension</a>
+          <button type="button" class="btn secondary pill-cta" onclick="start('ThatKJ/sieve-demo-target#4')">
+            <span class="play-triangle">▶</span>
+            <span>Inspect Breaking PR #4</span>
+          </button>
+          <a href="https://github.com/ThatKJ/sieve-demo-target" target="_blank" rel="noopener" class="btn outline pill-cta">
+            <span>Demo Target Repo</span>
+            <svg class="icon-external" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M3.75 2h3.5a.75.75 0 0 1 0 1.5H4.5v8.5h8.5V9.25a.75.75 0 0 1 1.5 0v3.5A1.25 1.25 0 0 1 13.25 14H3.75A1.25 1.25 0 0 1 2.5 12.75V3.25C2.5 2.56 3.06 2 3.75 2Zm6.5 0h3.5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V4.56L8.53 9.03a.75.75 0 0 1-1.06-1.06L11.94 3.5h-1.69a.75.75 0 0 1 0-1.5Z"/></svg>
+          </a>
         </div>
 
-        <div class="judge-motto-card glass">
-          <div class="motto-quote">
-            <span class="motto-quote-mark" aria-hidden="true">“</span>
-            <p class="motto-text">GitHub tells you what changed. Sieve helps you understand what that change could affect.</p>
+        <!-- HERO PRODUCT FRAME -->
+        <div class="hero-frame-wrapper">
+          <div class="browser-frame">
+            <div class="browser-header">
+              <div class="browser-dots">
+                <span class="dot-red"></span>
+                <span class="dot-yellow"></span>
+                <span class="dot-green"></span>
+              </div>
+              <div class="browser-address-bar">
+                <svg class="lock-icon" viewBox="0 0 16 16" width="12" height="12"><path fill="currentColor" d="M4 6V4a4 4 0 1 1 8 0v2h1a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2Zm2-2a2 2 0 1 0 4 0v2H6V4Z"/></svg>
+                <span>github.com/ThatKJ/sieve-demo-target/pull/4 · <strong>Sieve In-Situ PR Intelligence Active</strong></span>
+              </div>
+              <div class="browser-badge">
+                <span class="pulse-dot"></span>
+                <span>Live In-Situ Mode</span>
+              </div>
+            </div>
+            <div class="browser-content">
+              <img src="assets/hero-showcase.png" alt="Sieve In-Situ PR Intelligence Drawer inside GitHub" class="hero-img" loading="eager">
+              <div class="floating-hero-pill" onclick="start('ThatKJ/sieve-demo-target#4')" role="button" tabindex="0">
+                <span class="pill-play-icon">▶</span>
+                <span>Inspect PR #4 Interactive Blast Radius</span>
+              </div>
+            </div>
           </div>
-          <div class="judge-note">
-            <span class="judge-pill">Judge Experience Note</span>
-            <p class="judge-note-text">
-              This public Vercel website showcases Sieve's architecture, captured demo evidence, and screenshots. In-situ GitHub integration runs locally on macOS via our unpacked Chrome extension and Python daemon (<code>127.0.0.1:8787</code>).
-            </p>
+        </div>
+
+        <div class="judge-note-card">
+          <div class="judge-note-header">
+            <span class="judge-tag">Judge Experience Note</span>
+            <span class="judge-env">Static Demonstration on Vercel · In-Situ Local Daemon on macOS</span>
           </div>
+          <p class="judge-note-text">
+            This public website provides complete demonstration data and an interactive HTML5 Canvas repository atlas. For the full live in-situ experience inside GitHub, run our unpacked Chrome extension alongside the local Python daemon (<code>python3 -m sieve --serve</code> on <code>127.0.0.1:8787</code>).
+          </p>
         </div>
       </section>
 
-      <!-- HOW IT WORKS (4 PILLARS) -->
-      <section id="how-it-works" class="section-block">
-        <div class="section-head">
-          <p class="eyebrow">Architecture & Core Pillars</p>
-          <h2 class="section-title">Deterministic Lifecycle Verification + Grounded Multimodal AI</h2>
-          <p class="section-sub">
-            Maintainers shouldn't have to guess whether a pull request breaks unseen dependencies or whether an LLM is hallucinating diff findings. Sieve separates deterministic code facts from model reasoning.
+      <!-- 6-CARD FEATURE MATRIX: EVERYTHING A PULL REQUEST AFFECTS -->
+      <section id="features" class="section-block">
+        <div class="section-head text-center">
+          <h2 class="section-title-large">Everything a change could affect.</h2>
+          <p class="section-sub-large">
+            Open Sieve on any pull request and inspect it like an architectural blueprint.
           </p>
         </div>
 
-        <div class="pillars-grid">
-          <article class="pillar-card glass">
-            <div class="pillar-icon">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+        <div class="features-grid">
+          
+          <!-- Card 1: In-Situ GitHub Inspection -->
+          <article class="feature-card">
+            <div class="feature-preview-box">
+              <div class="mini-toolbar">
+                <span class="mini-gh-tab">Files changed <strong>3</strong></span>
+                <div class="mini-sieve-trigger">
+                  <span class="mini-sieve-dot"></span>
+                  <span>Sieve Intelligence</span>
+                </div>
+              </div>
+              <div class="mini-cursor">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="#1E293B"><path d="M4 0l16 12.279-6.951 1.17 4.325 8.817-3.596 1.734-4.35-8.879-5.428 5.428z"/></svg>
+              </div>
             </div>
-            <h3>1. Maintainer Command Center</h3>
-            <p>
-              Injected directly into <code>github.com/.../pulls</code>. Categorizes review queues into <em>Action Needed</em>, <em>Waiting on Author</em>, <em>Blocked & Conflicts</em>, <em>Overlapping Fixes</em>, and <em>Merge Candidates</em>. Sorts pull requests by AST Blast Radius to prioritize high-risk changes.
-            </p>
+            <div class="feature-body">
+              <h3 class="feature-title">In-Situ GitHub Injection</h3>
+              <p class="feature-desc">
+                Slides out directly beside the code diff in GitHub without interrupting your review flow or requiring context switching.
+              </p>
+            </div>
           </article>
 
-          <article class="pillar-card glass">
-            <div class="pillar-icon">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <!-- Card 2: Deterministic Blast Radius -->
+          <article class="feature-card">
+            <div class="feature-preview-box">
+              <div class="mini-chips-flow">
+                <span class="mini-chip mod">ledgerly/money.py</span>
+                <span class="mini-arrow">➔</span>
+                <span class="mini-chip warn">ledgerly/reporting.py</span>
+                <span class="mini-arrow">➔</span>
+                <span class="mini-chip pass">tests/test_money.py</span>
+              </div>
             </div>
-            <h3>2. In-Situ PR Intelligence Drawer</h3>
-            <p>
-              Injected directly into individual pull requests (<code>github.com/.../pull/123</code>). Slides out alongside the code diff without taking maintainers out of their native GitHub flow. Verifies claimed issues, tests, modified symbols, and file relationships.
-            </p>
+            <div class="feature-body">
+              <h3 class="feature-title">Deterministic Blast Radius</h3>
+              <p class="feature-desc">
+                Standard-library Python AST parsing extracts import statements and symbol exports to compute the true ripple effect across your codebase.
+              </p>
+            </div>
           </article>
 
-          <article class="pillar-card glass">
-            <div class="pillar-icon">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          <!-- Card 3: Breaking Change Radar -->
+          <article class="feature-card">
+            <div class="feature-preview-box">
+              <div class="mini-verdict-box">
+                <span class="mini-status-badge fail">Needs Work</span>
+                <span class="mini-code-warn">format_amount renamed ➔ still imported in reporting.py</span>
+              </div>
             </div>
-            <h3>3. Deterministic AST Topology</h3>
-            <p>
-              Standard-library Python AST parsing extracts import statements, symbol exports, and test consumers statically. Computes true blast radius without ever running untrusted contributor code.
-            </p>
+            <div class="feature-body">
+              <h3 class="feature-title">Breaking Change Radar</h3>
+              <p class="feature-desc">
+                Flags renamed functions, modified signatures, and broken downstream imports before you merge untested contributor changes.
+              </p>
+            </div>
           </article>
 
-          <article class="pillar-card glass">
-            <div class="pillar-icon">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+          <!-- Card 4: Verified Test Coverage -->
+          <article class="feature-card">
+            <div class="feature-preview-box">
+              <div class="mini-test-coverage">
+                <div class="mini-test-row pass">
+                  <span class="test-icon">✓</span>
+                  <span>test_money.py (test_negative_amounts)</span>
+                </div>
+                <div class="mini-test-row missing">
+                  <span class="test-icon">✗</span>
+                  <span>test_reporting.py (uncovered branch)</span>
+                </div>
+              </div>
             </div>
-            <h3>4. Gemma 4 Visual Intelligence</h3>
-            <p>
-              Multimodal reasoning with Google's <code>gemma-4-26b-a4b-it</code>. Receives the real high-contrast architecture graph PNG and structured AST evidence in a single inference call to explain architectural risks and test blind spots.
-            </p>
+            <div class="feature-body">
+              <h3 class="feature-title">Verified Test Consumers</h3>
+              <p class="feature-desc">
+                Distinguishes between claimed test coverage and actual test files importing the modified symbols in your test suite.
+              </p>
+            </div>
           </article>
+
+          <!-- Card 5: Zero Runtime Execution -->
+          <article class="feature-card">
+            <div class="feature-preview-box">
+              <div class="mini-code-window">
+                <code>ast.parse(source) <span class="code-comment">// static only</span></code>
+                <span class="mini-security-tag">0 untrusted evals</span>
+              </div>
+            </div>
+            <div class="feature-body">
+              <h3 class="feature-title">Zero Untrusted Execution</h3>
+              <p class="feature-desc">
+                Inspects incoming pull requests statically through AST tokenization. Contributor code is never executed, evaluated, or run in your environment.
+              </p>
+            </div>
+          </article>
+
+          <!-- Card 6: Multimodal Gemma 4 AI -->
+          <article class="feature-card">
+            <div class="feature-preview-box">
+              <div class="mini-gemma-pill">
+                <span class="gemma-sparkle">✦</span>
+                <span class="gemma-text">Graph PNG + AST Payload ➔ Gemma 4</span>
+              </div>
+            </div>
+            <div class="feature-body">
+              <h3 class="feature-title">Gemma 4 Visual Reasoning</h3>
+              <p class="feature-desc">
+                Pairs the rendered high-contrast dependency diagram with structured AST facts for grounded architectural risk evaluation.
+              </p>
+            </div>
+          </article>
+
         </div>
       </section>
 
-      <!-- DEMO & SCREENSHOTS -->
+      <!-- DUAL HORIZONTAL SPLIT CARDS: EVERYTHING IT READS & EVERYWHERE IT ACTS -->
+      <section class="section-block">
+        <div class="dual-cards-grid">
+          
+          <!-- Left Card: Everything Sieve Reads -->
+          <div class="dual-card">
+            <div class="dual-card-fan">
+              <span class="fan-pill">Python AST Trees</span>
+              <span class="fan-pill highlight">Symbol Exports</span>
+              <span class="fan-pill">Import Graph</span>
+              <span class="fan-pill">Pytest Assertions</span>
+              <span class="fan-pill">Git Diffs</span>
+            </div>
+            <div class="dual-card-soft-container">
+              <h3 class="dual-card-title">Everything Sieve reads</h3>
+              <p class="dual-card-desc">
+                Import statements, symbol signatures, test coverage assertions, and git patch hunks — parsed statically from your repository snapshot without executing code.
+              </p>
+            </div>
+          </div>
+
+          <!-- Right Card: Everywhere Sieve Acts -->
+          <div class="dual-card">
+            <div class="dual-card-fan">
+              <span class="fan-pill">github.com/pulls</span>
+              <span class="fan-pill highlight">In-Situ Review Drawer</span>
+              <span class="fan-pill">Topology Canvas</span>
+              <span class="fan-pill">Blast Radius Badges</span>
+              <span class="fan-pill">Risk Reports</span>
+            </div>
+            <div class="dual-card-soft-container">
+              <h3 class="dual-card-title">Everywhere Sieve acts</h3>
+              <p class="dual-card-desc">
+                Directly in your browser: maintainer queue triage on the PR list, in-situ blast radius beside pull request diffs, and deep interactive repository atlases.
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- DEMO SECTION & INTERACTIVE REPOSITORY ATLAS -->
       <section id="demo" class="section-block">
-        <div class="section-head">
+        <div class="section-head text-center">
           <p class="eyebrow">Real GitHub Repository Verification</p>
-          <h2 class="section-title">Tested Against ThatKJ/sieve-demo-target</h2>
-          <p class="section-sub">
-            Sieve isn't tested on artificial mockups. We maintain real open pull requests on our public demo target repository to demonstrate verification under real conditions.
+          <h2 class="section-title-large">Tested on real pull requests.</h2>
+          <p class="section-sub-large">
+            Explore live deterministic verification against real pull requests in our public target repo, <code>ThatKJ/sieve-demo-target</code>.
           </p>
         </div>
 
         <div class="demo-cards-grid">
+          
+          <!-- Demo PR 3 -->
           <article class="demo-card">
             <div class="demo-card-header">
               <span class="chip ready">Verified Pass</span>
@@ -146,18 +311,19 @@
             </div>
             <h3 class="demo-pr-title">Show negative amounts as -$5.00 instead of $-5.00</h3>
             <p class="demo-pr-desc">
-              A focused accounting fix. Adjusts negative amount formatting and adds a comprehensive regression test in <code>tests/test_money.py</code>.
+              A clean accounting format fix with an attached regression test. Confirmed isolated with zero downstream breakage.
             </p>
             <div class="demo-meta">
               <span><strong>Blast Radius:</strong> 2 files (isolated)</span>
               <span><strong>Tests:</strong> Added & passing</span>
             </div>
-            <button type="button" class="btn ghost small demo-inspect-btn" onclick="start('ThatKJ/sieve-demo-target#3')">
+            <button type="button" class="btn primary small pill-cta demo-inspect-btn" onclick="start('ThatKJ/sieve-demo-target#3')">
               Inspect Interactive Topology
             </button>
           </article>
 
-          <article class="demo-card">
+          <!-- Demo PR 4 -->
+          <article class="demo-card featured-demo-card">
             <div class="demo-card-header">
               <span class="chip needs-work">Needs Work</span>
               <span class="demo-pr-num">PR #4</span>
@@ -170,11 +336,12 @@
               <span><strong>Blast Radius:</strong> 3 files (breakage)</span>
               <span><strong>AST Finding:</strong> Broken downstream import</span>
             </div>
-            <button type="button" class="btn ghost small demo-inspect-btn" onclick="start('ThatKJ/sieve-demo-target#4')">
+            <button type="button" class="btn primary small pill-cta demo-inspect-btn" onclick="start('ThatKJ/sieve-demo-target#4')">
               Inspect Interactive Topology
             </button>
           </article>
 
+          <!-- Demo PR 5 -->
           <article class="demo-card">
             <div class="demo-card-header">
               <span class="chip low-effort">Low-Effort Docs</span>
@@ -188,154 +355,193 @@
               <span><strong>Blast Radius:</strong> 0 code files</span>
               <span><strong>Queue:</strong> Safe documentation triage</span>
             </div>
-            <button type="button" class="btn ghost small demo-inspect-btn" onclick="start('ThatKJ/sieve-demo-target#5')">
+            <button type="button" class="btn primary small pill-cta demo-inspect-btn" onclick="start('ThatKJ/sieve-demo-target#5')">
               Inspect Interactive Topology
             </button>
           </article>
+
         </div>
 
         <!-- INTERACTIVE WORKBENCH MOUNT -->
         <div id="demo-atlas-mount" class="demo-atlas-mount"></div>
+      </section>
 
-        <!-- SCREENSHOTS GALLERY -->
-        <div class="screenshots-section">
-          <div class="section-head-compact">
-            <h3 class="section-title">In-Situ GitHub Screen Capture</h3>
-            <p class="section-sub">Actual screenshots of Sieve running inside GitHub on macOS.</p>
-          </div>
+      <!-- REAL IN-SITU SCREENSHOTS SHOWCASE -->
+      <section id="screenshots" class="section-block">
+        <div class="section-head text-center">
+          <p class="eyebrow">Real Production Screenshots</p>
+          <h2 class="section-title-large">Grounded in GitHub. Built for macOS.</h2>
+          <p class="section-sub-large">
+            Real, unedited screenshots of Sieve running inside GitHub with our unpacked Chrome extension and local daemon.
+          </p>
+        </div>
 
-          <div class="screenshots-grid">
-            <figure class="screenshot-item glass">
-              <img src="assets/command-center.png" alt="Maintainer Command Center inside GitHub Dark UI" loading="lazy">
-              <figcaption>
-                <strong>Maintainer Command Center</strong>
-                <span>Injected into GitHub's Pull Request tab with dark mode theme blending and triage lanes.</span>
-              </figcaption>
-            </figure>
+        <div class="screenshots-grid">
+          
+          <figure class="screenshot-item">
+            <div class="screenshot-window-bar">
+              <span class="sw-dot"></span><span class="sw-dot"></span><span class="sw-dot"></span>
+              <span class="sw-title">github.com/ThatKJ/sieve-demo-target/pulls</span>
+            </div>
+            <img src="assets/command-center.png" alt="Maintainer Command Center inside GitHub Dark UI" loading="lazy">
+            <figcaption>
+              <strong>Maintainer Command Center</strong>
+              <span>Triage PR queues sorted by AST Blast Radius directly inside GitHub's Pull Request tab.</span>
+            </figcaption>
+          </figure>
 
-            <figure class="screenshot-item glass">
-              <img src="assets/pr-intelligence-drawer.png" alt="In-situ PR Intelligence drawer with SVG impact topology" loading="lazy">
-              <figcaption>
-                <strong>PR Intelligence Drawer</strong>
-                <span>Non-disruptive drawer displaying deterministic import blast radius and AST evidence.</span>
-              </figcaption>
-            </figure>
+          <figure class="screenshot-item">
+            <div class="screenshot-window-bar">
+              <span class="sw-dot"></span><span class="sw-dot"></span><span class="sw-dot"></span>
+              <span class="sw-title">github.com/ThatKJ/sieve-demo-target/pull/4</span>
+            </div>
+            <img src="assets/pr-intelligence-drawer.png" alt="In-Situ PR Intelligence Drawer inspecting PR #4" loading="lazy">
+            <figcaption>
+              <strong>In-Situ PR Intelligence Drawer</strong>
+              <span>Slides open beside code diffs to display deterministic impact, modified symbols, and breaking imports.</span>
+            </figcaption>
+          </figure>
 
-            <figure class="screenshot-item glass">
-              <img src="assets/gemma-visual-intelligence.png" alt="Gemma 4 Visual Intelligence multimodal inference" loading="lazy">
-              <figcaption>
-                <strong>Gemma 4 Visual Intelligence</strong>
-                <span>Multimodal reasoning pairing high-contrast SVG graph PNG with structured AST metadata.</span>
-              </figcaption>
-            </figure>
+          <figure class="screenshot-item">
+            <div class="screenshot-window-bar">
+              <span class="sw-dot"></span><span class="sw-dot"></span><span class="sw-dot"></span>
+              <span class="sw-title">Multimodal Gemma 4 Visual Reasoning</span>
+            </div>
+            <img src="assets/gemma-visual-intelligence.png" alt="Multimodal Gemma 4 Visual Intelligence" loading="lazy">
+            <figcaption>
+              <strong>Gemma 4 Visual Intelligence</strong>
+              <span>Combines the high-contrast architecture diagram PNG with AST evidence in a single inference call.</span>
+            </figcaption>
+          </figure>
 
-            <figure class="screenshot-item glass">
-              <img src="assets/pr-pill.png" alt="Native GitHub header switcher and status pill" loading="lazy">
-              <figcaption>
-                <strong>Native Header Switcher</strong>
-                <span>Seamlessly toggle between Native GitHub and Sieve Workspace without page reloads.</span>
-              </figcaption>
-            </figure>
+          <figure class="screenshot-item">
+            <div class="screenshot-window-bar">
+              <span class="sw-dot"></span><span class="sw-dot"></span><span class="sw-dot"></span>
+              <span class="sw-title">Chrome Extension Popup</span>
+            </div>
+            <img src="assets/extension-popup.png" alt="Chrome Extension Popup & Local Daemon Status" loading="lazy">
+            <figcaption>
+              <strong>Local Daemon Connection</strong>
+              <span>Monitors local Python daemon health (127.0.0.1:8787) and Ollama inference readiness.</span>
+            </figcaption>
+          </figure>
 
-            <figure class="screenshot-item glass">
-              <img src="assets/extension-popup.png" alt="Chrome extension popup connection state" loading="lazy">
-              <figcaption>
-                <strong>Manifest V3 Extension Popup</strong>
-                <span>Instant connection status for local Python engine (127.0.0.1:8787) and Gemma 4 model.</span>
-              </figcaption>
-            </figure>
-          </div>
         </div>
       </section>
 
-      <!-- INSTALLATION & SETUP -->
-      <section id="install" class="section-block">
-        <div class="section-head">
-          <p class="eyebrow">Local Setup Guide</p>
-          <h2 class="section-title">Install Sieve on macOS or Linux</h2>
-          <p class="section-sub">
-            Sieve consists of two independent components: a lightweight local Python engine and a Manifest V3 Chrome extension.
+      <!-- HOW THE TECHNOLOGY WORKS: 3-STEP ARCHITECTURE -->
+      <section id="architecture" class="section-block">
+        <div class="section-head text-center">
+          <p class="eyebrow">Deterministic Architecture</p>
+          <h2 class="section-title-large">How the technology works.</h2>
+          <p class="section-sub-large">
+            Deterministic AST parsing provides the ground truth. Multimodal AI provides architectural perspective.
           </p>
         </div>
 
         <div class="install-steps-grid">
-          <div class="install-step-card glass">
+          
+          <div class="install-step-card">
             <div class="step-badge">1</div>
-            <h3>Start the Local Engine</h3>
-            <p>Runs strictly on <code>127.0.0.1:8787</code> using Python's standard library. Zero pip packages required.</p>
-            <pre class="code-block"><code>git clone https://github.com/ThatKJ/sieve.git
-cd sieve
-python3 -m sieve --serve --port 8787</code></pre>
-            <p class="small muted">Optional Gemma 4 API configuration: add <code>GEMMA_API_KEY=your_key</code> in local <code>.env</code>.</p>
+            <h3 class="step-title">Start Local Python Daemon</h3>
+            <p class="step-desc">Deterministic standard-library AST parser indexes import trees and symbol tables in milliseconds.</p>
+            <pre class="code-block"><code>cd ThatKJ/sieve
+python3 -m sieve --serve</code></pre>
           </div>
 
-          <div class="install-step-card glass">
+          <div class="install-step-card">
             <div class="step-badge">2</div>
-            <h3>Load Chrome Extension</h3>
-            <p>Install the unpacked Manifest V3 extension in Google Chrome.</p>
+            <h3 class="step-title">Load Chrome Extension</h3>
+            <p class="step-desc">Manifest V3 unpacked extension injects review drawer into GitHub without running untrusted code.</p>
             <ol class="step-list">
-              <li>Open Chrome and navigate to <code>chrome://extensions</code></li>
-              <li>Toggle <strong>Developer mode</strong> ON in the top right</li>
-              <li>Click <strong>Load unpacked</strong> and select the <code>extension/</code> folder</li>
-              <li>Open the extension popup and click <strong>Test Connection</strong></li>
+              <li>Open <code>chrome://extensions</code></li>
+              <li>Enable <strong>Developer mode</strong></li>
+              <li>Click <strong>Load unpacked</strong> and choose <code>extension/</code></li>
             </ol>
           </div>
 
-          <div class="install-step-card glass">
+          <div class="install-step-card">
             <div class="step-badge">3</div>
-            <h3>Open GitHub & Review</h3>
-            <p>Navigate to any pull request list to activate Sieve.</p>
+            <h3 class="step-title">Review with Certainty</h3>
+            <p class="step-desc">Open any pull request on GitHub to inspect blast radius, verify tests, and ask Gemma 4.</p>
             <ol class="step-list">
-              <li>Open <code>https://github.com/ThatKJ/sieve-demo-target/pulls</code></li>
-              <li>Click <strong>Sieve Workspace</strong> in the pull requests toolbar</li>
-              <li>Open any PR and click <strong>Sieve PR Intelligence</strong> to inspect impact</li>
-              <li>Click <strong>Ask Gemma 4</strong> for multimodal visual reasoning</li>
+              <li>Navigate to pull request on GitHub</li>
+              <li>Click <strong>Sieve PR Intelligence</strong></li>
+              <li>Inspect blast radius and test consumers</li>
             </ol>
           </div>
+
         </div>
       </section>
 
-      <!-- PRIVACY & SECURITY -->
-      <section id="privacy" class="section-block">
-        <div class="section-head">
-          <p class="eyebrow">Enterprise Privacy</p>
-          <h2 class="section-title">Security & Data Privacy Guarantees</h2>
-          <p class="section-sub">
-            Designed for open-source maintainers and enterprise engineering teams who handle proprietary codebases.
+      <!-- SECURITY & PRIVACY GUARANTEES -->
+      <section id="security" class="section-block">
+        <div class="section-head text-center">
+          <p class="eyebrow">Enterprise Security</p>
+          <h2 class="section-title-large">Security & privacy by design.</h2>
+          <p class="section-sub-large">
+            Designed for open-source maintainers and engineering teams protecting proprietary codebases.
           </p>
         </div>
 
         <div class="privacy-grid">
-          <div class="privacy-card glass">
+          
+          <div class="privacy-card">
             <div class="privacy-icon">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             </div>
-            <h3>Local-First Code Processing</h3>
-            <p>AST parsing, file tree indexing, and deterministic lifecycle tracking execute locally on <code>127.0.0.1:8787</code>. Full codebase contents never leave your workstation.</p>
+            <h3 class="privacy-title">Local-First Code Processing</h3>
+            <p class="privacy-desc">
+              AST parsing, file tree indexing, and deterministic tracking execute on <code>127.0.0.1:8787</code>. Full codebase contents never leave your workstation.
+            </p>
           </div>
 
-          <div class="privacy-card glass">
+          <div class="privacy-card">
             <div class="privacy-icon">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
             </div>
-            <h3>Zero Contributor Code Execution</h3>
-            <p>Sieve inspects code purely through static Abstract Syntax Tree (AST) parsing. Untrusted contributor PR code is never evaluated, imported, or run in your environment.</p>
+            <h3 class="privacy-title">Zero Contributor Execution</h3>
+            <p class="privacy-desc">
+              Sieve inspects code purely through static Abstract Syntax Tree (AST) parsing. Untrusted contributor PR code is never evaluated, imported, or run in your environment.
+            </p>
           </div>
 
-          <div class="privacy-card glass">
+          <div class="privacy-card">
             <div class="privacy-icon">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             </div>
-            <h3>Read-Only GitHub Permissions</h3>
-            <p>Sieve operates strictly in read-only mode using standard GitHub tokens. It never creates PR comments, triggers unwanted webhooks, or mutates repository state.</p>
+            <h3 class="privacy-title">Read-Only GitHub Permissions</h3>
+            <p class="privacy-desc">
+              Sieve operates strictly in read-only mode using standard GitHub tokens. It never creates unwanted comments, triggers webhooks, or mutates repository state without explicit confirmation.
+            </p>
           </div>
 
-          <div class="privacy-card glass">
+          <div class="privacy-card">
             <div class="privacy-icon">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
             </div>
-            <h3>Opt-In Gemma Multimodal Inference</h3>
-            <p>Visual Intelligence is triggered only when explicitly requested. It transmits only the rendered high-contrast dependency diagram and extracted symbol metadata to Google's Generative Language API.</p>
+            <h3 class="privacy-title">Opt-In Multimodal Reasoning</h3>
+            <p class="privacy-desc">
+              Visual intelligence is triggered only when explicitly requested. It transmits only the rendered high-contrast dependency diagram and extracted symbol metadata to Google's Generative Language API.
+            </p>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- FINAL CALL TO ACTION BANNER -->
+      <section class="section-block final-cta-block">
+        <div class="final-cta-card">
+          <h2 class="final-cta-title">Understand every pull request before merging.</h2>
+          <p class="final-cta-sub">
+            Try Sieve's interactive repository atlas now or install the extension to inspect your own GitHub repositories.
+          </p>
+          <div class="final-cta-actions">
+            <a href="#demo" class="btn primary pill-cta">Explore Live Demo PRs</a>
+            <a href="https://github.com/ThatKJ/sieve" target="_blank" rel="noopener" class="btn secondary pill-cta">
+              <svg class="github-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+              <span>Star on GitHub</span>
+            </a>
           </div>
         </div>
       </section>
@@ -349,10 +555,46 @@ python3 -m sieve --serve --port 8787</code></pre>
     <section id="repo" class="view" hidden></section>
   </main>
 
+  <!-- REFINED MODERN FOOTER -->
   <footer class="foot" role="contentinfo">
-    <span>Sieve · MIT licensed · <a href="https://github.com/ThatKJ/sieve" target="_blank" rel="noopener">github.com/ThatKJ/sieve</a></span>
-    <span>GitHub tells you what changed. Sieve helps you understand what that change could affect.</span>
-    <span>Read-only on GitHub. Contributor code is never executed.</span>
+    <div class="foot-col foot-brand">
+      <a class="brand" href="/" aria-label="Sieve, home">
+        <span class="mesh" aria-hidden="true"></span>
+        <span class="brand-text">sieve</span>
+      </a>
+      <p class="foot-tagline">GitHub tells you what changed. Sieve reveals what it could affect.</p>
+      <span class="foot-meta">MIT Licensed · Open Source · ThatKJ/sieve</span>
+    </div>
+
+    <div class="foot-col">
+      <h4 class="foot-heading">Navigation</h4>
+      <ul class="foot-links">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#demo">Demo Pull Requests</a></li>
+        <li><a href="#screenshots">Product Showcase</a></li>
+        <li><a href="#architecture">Architecture</a></li>
+      </ul>
+    </div>
+
+    <div class="foot-col">
+      <h4 class="foot-heading">Technical Specs</h4>
+      <ul class="foot-links">
+        <li><a href="#security">Local-First Guarantee</a></li>
+        <li><a href="#security">Zero Runtime Evaluation</a></li>
+        <li><a href="#security">Multimodal Gemma 4</a></li>
+        <li><a href="https://github.com/ThatKJ/sieve-demo-target" target="_blank" rel="noopener">Demo Target Repo</a></li>
+      </ul>
+    </div>
+
+    <div class="foot-col">
+      <h4 class="foot-heading">Repository</h4>
+      <ul class="foot-links">
+        <li><a href="https://github.com/ThatKJ/sieve" target="_blank" rel="noopener">GitHub Project</a></li>
+        <li><a href="https://github.com/ThatKJ/sieve/tree/main/extension" target="_blank" rel="noopener">Chrome Extension</a></li>
+        <li><a href="https://github.com/ThatKJ/sieve/tree/main/sieve" target="_blank" rel="noopener">Python Engine</a></li>
+      </ul>
+    </div>
   </footer>
 
   <script src="demo-data.js"></script>
