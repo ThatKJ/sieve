@@ -6,6 +6,7 @@ __pycache__/
 *.pdf
 !presentation/*.pdf
 .DS_Store
+opencode.json
 .playwright-mcp/
 .vercel/
 .vercel
