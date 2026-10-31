@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in the engine, extension or web app doesn't work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security problems should not be filed here**: see SECURITY.md.
+        Never paste API keys, GitHub tokens or `.env` contents.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Engine (python3 -m sieve)
+        - Chrome extension
+        - Web app (http://127.0.0.1:8787)
+        - Gemma 4 visual intelligence
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the repository or PR you inspected if it is public (e.g. owner/repo#123).
+      placeholder: |
+        1. Start the engine with `python3 -m sieve --serve`
+        2. Open ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output
+      description: Engine terminal output, extension console errors (redact any tokens).
+      render: text
+  - type: input
+    id: commit
+    attributes:
+      label: Sieve commit
+      description: Output of `git rev-parse --short HEAD`
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: macOS 15, Chrome 141, Python 3.12, Ollama 0.x

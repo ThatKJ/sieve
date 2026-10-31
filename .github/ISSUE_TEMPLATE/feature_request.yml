@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a capability for maintainers.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The maintainer problem
+      description: What are you trying to do today, and what makes it slow or unreliable? Links to real examples help.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence source
+      description: Sieve labels every finding by where it comes from (repository, GitHub data, model). Where would this feature's evidence come from?
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Project principles
+      options:
+        - label: This keeps Sieve read-only on GitHub (or proposes an explicit, confirmed opt-in write action).
+          required: true
+        - label: This does not require executing contributor code.
+          required: true
