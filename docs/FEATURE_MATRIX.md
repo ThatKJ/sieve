@@ -30,3 +30,4 @@
 | **Security & Architecture** | **Origin-Restricted Local Daemon** | Only authorized extension IDs and localhost can access `http://127.0.0.1:8787` | `server.py` | **Core (Implemented)** |
 | **Security & Architecture** | **DNS Rebinding Host Validation** | Drops requests whose HTTP Host header does not match localhost / 127.0.0.1 | `server.py` | **Core (Implemented)** |
 | **Security & Architecture** | **Hydration-Resilient Observer** | Polling loop guaranteeing persistent attachment across GitHub React SPA hydration | Content Script | **Core (Implemented)** |
+

@@ -60,3 +60,4 @@ We will **transform**:
 - `extension/ui/command-center.js`: Full redesign into the multi-pane maintainer workspace (Sidebar, Attention Strip, High-Contrast Selected PR Spotlight Card, Queue Cards, Floating Action Bar).
 - `extension/ui/pr-intelligence.js`: Deep inspection drawer with monochromatic tokens and 1-click review action templates.
 - `extension/popup/*`: Complete visual synchronization with the workspace design system.
+

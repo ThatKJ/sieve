@@ -101,3 +101,4 @@ font-family: -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", "SF P
 ### 4. Slide-Over Intelligence Drawer
 - Layered translucent glass backdrop (`rgba(0, 0, 0, 0.25)` with `backdrop-filter: blur(8px)`).
 - Drawer body in `#F7F6F4` with white elevated cards and pure SVG DAG visualizer.
+
