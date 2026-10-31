@@ -1757,3 +1757,83 @@ code, .mono { font-family: var(--sieve-font-mono); font-size: 0.88em; }
 .sieve-ws-backdrop { background: radial-gradient(800px 500px at 50% 0%, rgba(255, 118, 46, 0.08), transparent 70%), rgba(6, 5, 9, 0.72); }
 @keyframes sieve-hw-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 @media (prefers-reduced-motion: reduce) { .sieve-ws::before { animation: none; } .btn-sieve.primary:active, .scc-btn.primary:active { transform: none; } }
+
+/* ================================================================ HALLOWEEN EDITION
+   A token-level theme on top of the existing design system: same layout, same components.
+   Active while the host carries data-edition="halloween" (set in content.js, ensureHost).
+   Revert: remove that one setAttribute line, or this block. The doubled attribute selector
+   outranks the light/dark :host rules above regardless of GitHub's colour mode. */
+:host([data-edition="halloween"][data-edition]) {
+  --hw-pumpkin: #FF813A;
+  --hw-violet: #8D72B8;
+  --sieve-bg-canvas: #101014;
+  --sieve-surface-primary: #19191F;
+  --sieve-surface-secondary: #15151A;
+  --sieve-surface-elevated: #22222B;
+  --sieve-surface-contrast: #2B2735;
+  --sieve-surface-contrast-subtle: #34303F;
+  --sieve-text-primary: #F4F0E8;        /* 15.9:1 on #19191F */
+  --sieve-text-secondary: #AAA5B0;      /* 7.4:1 */
+  --sieve-text-muted: #8A8592;          /* 4.9:1 */
+  --sieve-text-inverted: #F4F0E8;
+  --sieve-border-subtle: #34313B;
+  --sieve-border-glass: rgba(141, 114, 184, 0.22);
+  --sieve-border-contrast: rgba(141, 114, 184, 0.3);
+  --sieve-workspace-bg:
+    radial-gradient(1200px 420px at 92% -12%, rgba(141, 114, 184, 0.10), transparent 60%),
+    radial-gradient(700px 300px at 0% 0%, rgba(255, 129, 58, 0.035), transparent 70%),
+    rgba(25, 25, 31, 0.97);
+  --sieve-sidebar-bg: rgba(16, 16, 20, 0.7);
+  --sieve-nav-hover: rgba(141, 114, 184, 0.12);
+  --sieve-modal-bg: linear-gradient(180deg, #1E1D25 0%, #19191F 40%, #121217 100%);
+  --sieve-modal-head-bg: rgba(25, 25, 31, 0.92);
+  --sieve-shadow-soft: 0 4px 16px rgba(5, 3, 12, 0.5), 0 1px 3px rgba(5, 3, 12, 0.35);
+  --sieve-shadow-elevated: 0 12px 32px rgba(20, 10, 40, 0.55), 0 2px 6px rgba(5, 3, 12, 0.4);
+  --sieve-shadow-contrast: 0 16px 36px rgba(30, 14, 60, 0.6), 0 4px 12px rgba(5, 3, 12, 0.5);
+  --sieve-shadow-floating: 0 20px 48px rgba(30, 14, 60, 0.65), 0 4px 12px rgba(5, 3, 12, 0.4);
+  --sieve-status-pass: #6CC08B;         /* muted green, 7.9:1 */
+  --sieve-status-pass-bg: rgba(108, 192, 139, 0.13);
+  --sieve-status-warn: #E8B04B;         /* warm amber, 9.2:1 */
+  --sieve-status-warn-bg: rgba(232, 176, 75, 0.13);
+  --sieve-status-fail: #F2706A;         /* 6.2:1 */
+  --sieve-status-fail-bg: rgba(242, 112, 106, 0.13);
+  color-scheme: dark;
+}
+
+/* Pumpkin is reserved for "you are here" and focus: small, never large fills. */
+:host([data-edition="halloween"]) .sieve-nav-item.active { box-shadow: inset 2px 0 0 var(--hw-pumpkin); }
+:host([data-edition="halloween"]) .sieve-segmented-btn.active,
+:host([data-edition="halloween"]) .sieve-kpi-card.active { box-shadow: inset 0 -2px 0 var(--hw-pumpkin); }
+:host([data-edition="halloween"]) .scc-kpi[aria-pressed="true"] { border-color: var(--hw-pumpkin); box-shadow: inset 0 0 0 1px var(--hw-pumpkin); }
+:host([data-edition="halloween"]) .scc-chip[aria-pressed="true"] { background: rgba(255, 129, 58, 0.14); color: #FFB48A; border-color: rgba(255, 129, 58, 0.45); }
+:host([data-edition="halloween"]) .scc-row[aria-current="true"] { box-shadow: inset 2px 0 0 var(--hw-pumpkin); }
+:host([data-edition="halloween"]) .scc-row,
+:host([data-edition="halloween"]) .scc-kpi,
+:host([data-edition="halloween"]) .scc-chip,
+:host([data-edition="halloween"]) .scc-att-item { transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease; }
+:host([data-edition="halloween"]) .scc-kpi:hover,
+:host([data-edition="halloween"]) .scc-att-item:hover { border-color: rgba(141, 114, 184, 0.45); }
+:host([data-edition="halloween"]) :focus-visible { outline: 2px solid var(--hw-pumpkin) !important; outline-offset: 2px; }
+:host([data-edition="halloween"]) a { color: #C7B3EA; }
+:host([data-edition="halloween"]) .sieve-ws-block.contrast { background: linear-gradient(180deg, #2E2939 0%, #221F2B 100%); border-color: #3B3547; }
+
+/* The edition mark: one small moon-and-ember glyph beside the Command Center title. */
+:host([data-edition="halloween"]) .scc-title h1::after {
+  content: "Halloween edition";
+  display: inline-flex; align-items: center; vertical-align: middle;
+  margin-left: 10px; padding: 2px 9px 2px 20px; border-radius: 999px;
+  font: 600 10.5px/1.5 var(--sieve-font-mono); letter-spacing: 0.04em; text-transform: uppercase;
+  color: #FFB48A; border: 1px solid rgba(255, 129, 58, 0.35);
+  background:
+    radial-gradient(circle at 10px 50%, var(--hw-pumpkin) 0 3.5px, transparent 4px),
+    rgba(255, 129, 58, 0.08);
+}
+
+/* Activation overlay */
+:host([data-edition="halloween"]) .sieve-act-overlay { background: rgba(10, 8, 16, 0.62); }
+:host([data-edition="halloween"]) .sieve-act-panel { background: #19191F; border-color: #34313B; color: #F4F0E8; box-shadow: 0 24px 60px rgba(30, 14, 60, 0.6); }
+:host([data-edition="halloween"]) .sieve-act-mark .ring { border-color: rgba(255, 129, 58, 0.7); }
+
+@media (prefers-reduced-motion: reduce) {
+  :host([data-edition="halloween"]) * { transition: none !important; }
+}

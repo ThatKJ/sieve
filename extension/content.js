@@ -251,6 +251,9 @@
         border: 0; background: transparent; padding: 0; cursor: pointer;
         color: #FF813A; font: inherit; font-weight: 600; text-decoration: underline;
       }
+      .sieve-pr-pill { background: #19191F; color: #F4F0E8; border-color: rgba(255, 129, 58, 0.45); }
+      .sieve-pr-pill:hover { background: #22222B; }
+      .sieve-native-switcher button[aria-selected="true"].sieve-switch-sieve { box-shadow: inset 0 -2px 0 #FF813A, 0 1px 4px rgba(0, 0, 0, 0.35); }
       html[data-color-mode="light"] .sieve-pr-pill {
         background: #171717;
         color: #FFFFFF;
@@ -353,6 +356,7 @@
       else if (state.mounted) diag("remounted_after_dom_replacement");
     }
     currentHost = host;
+    host.setAttribute("data-edition", "halloween"); // Halloween edition (ui/workspace.css); delete this line to revert
     updateHostTheme();
     return shadowRoot;
   }

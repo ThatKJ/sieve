@@ -216,3 +216,24 @@ button.primary, .btn.primary, .btn-primary { background: linear-gradient(180deg,
 body::before { content: "🎃 HALLOWEEN EDITION"; display: block; text-align: center; font: 600 9.5px/1 -apple-system, system-ui, sans-serif;
   letter-spacing: 0.16em; color: #CDB6EA; padding: 6px 0 2px; opacity: 0.85; }
 :focus-visible { outline: 2px solid #FF9A4D; outline-offset: 2px; }
+
+/* Halloween edition: token override (delete this block to revert). Applies in light and dark. */
+:root, :root:root {
+  --canvas-bg: #101014;
+  --surface-primary: #19191F;
+  --surface-secondary: #22222B;
+  --surface-elevated: #2A2833;
+  --text-primary: #F4F0E8;
+  --text-secondary: #AAA5B0;
+  --text-muted: #8A8592;
+  --contrast-accent: #FF813A;
+  --border-subtle: #34313B;
+  --border-strong: #4A4553;
+  --status-ready: #6CC08B;
+  --status-ready-bg: rgba(108, 192, 139, 0.14);
+  --status-blocked: #F2706A;
+  --status-blocked-bg: rgba(242, 112, 106, 0.14);
+  color-scheme: dark;
+}
+.pop-head { box-shadow: inset 0 -1px 0 rgba(141, 114, 184, 0.25); }
+.brand-text::after { content: " · halloween"; color: #FF813A; font-weight: 600; }
