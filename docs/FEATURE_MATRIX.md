@@ -27,7 +27,7 @@
 | **PR Intelligence** | **Claim vs. Reality Evidence Ledger** | Line-item verification of claimed tests, issue grounding, and convention safety | `core.py` | **Core (Implemented)** |
 | **Resolution Workspace** | **1-Click Contextual Response Composer** | Pre-fills friendly, professional maintainer feedback based on verified findings | Client Templates | **Core (Implemented)** |
 | **Resolution Workspace** | **Copy to Clipboard & Markdown Format** | One-click copy formatted for GitHub review comments | Client Clipboard | **Core (Implemented)** |
-| **Security & Architecture** | **Origin-Restricted Local Daemon** | Only authorized extension IDs and localhost can access `http://127.0.0.1:8787` | `server.py` | **Core (Implemented)** |
-| **Security & Architecture** | **DNS Rebinding Host Validation** | Drops requests whose HTTP Host header does not match localhost / 127.0.0.1 | `server.py` | **Core (Implemented)** |
+| **Security & Architecture** | **Origin-Restricted Local Daemon** | Only localhost origins and Chrome extensions (any extension ID, not only Sieve's) can access `http://127.0.0.1:8787` | `server.py` | **Core (Implemented)** |
+| **Security & Architecture** | **DNS Rebinding Host Validation** | Planned: drop requests whose HTTP Host header is not localhost / 127.0.0.1. Today only `Origin` is checked (see SECURITY.md › Known gaps) | `server.py` | **Not implemented (planned)** |
 | **Security & Architecture** | **Hydration-Resilient Observer** | Polling loop guaranteeing persistent attachment across GitHub React SPA hydration | Content Script | **Core (Implemented)** |
 

@@ -10,6 +10,8 @@ Sieve reads untrusted input: pull request titles, bodies, diffs, issue text and 
 | Prompt injection through PR text | The model answers one bounded question under a JSON schema; its output is validated and labelled "model opinion". It can't trigger actions, because there are none |
 | Oversized repositories | Tarball cap 80 MB, per-file parse cap 300 KB, graph cap 1,200 files |
 | Token leakage | The token comes from the environment or `gh auth token`, is only sent to api.github.com, and is never logged, cached or returned by the API. `.env` and `.cache/` are gitignored |
+| Gemma 4 requests | Engine-side only; PNG signature, IHDR and size validated (4 MB raw / 5 MB base64); strict base64; model output grounded and labelled, never acted on |
+| Chat context leaking across PRs | Sessions keyed by repository and head commit, history capped at 6 turns |
 | Network exposure | The server binds to 127.0.0.1 by default. It has no authentication, so don't expose it publicly |
 
-To report a vulnerability, open a private security advisory on the repository.
+Reporting process and known gaps: see the root [SECURITY.md](../SECURITY.md).

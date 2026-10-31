@@ -17,7 +17,16 @@ Stated plainly so nobody has to discover them in a demo.
 - Runs take about 5–15 s on an Apple M5 with 16 GB; slower machines will wait longer.
 
 **Product**
-- Local web app only: no accounts, no GitHub App, no scheduled scanning.
+- Runs locally (engine, web app and Chrome extension): no accounts, no GitHub App, no scheduled scanning.
 - Without a token, GitHub allows 60 requests/hour; one full PR review uses about 8–12.
 - Very large repositories (tarball over 80 MB) are refused rather than partially mapped.
 - Evidence of market demand comes from public discussions and press, not from customer interviews. See `research/`.
+
+**Gemma 4 visual intelligence**
+- Requires a Gemini API key (`GEMMA_API_KEY` or `GEMINI_API_KEY`) and network access; without it the feature reports an error and everything else keeps working.
+- Grounding checks citations against the evidence Sieve sent; it cannot prove the model's architectural reasoning is right. Unmatched claims are shown as hypotheses.
+- The graph image is rendered by the extension, so visual analysis is only available from the extension workspace.
+
+**Security**
+- The engine validates `Origin` but not `Host`, and allows any `chrome-extension://` origin. See [SECURITY.md](../SECURITY.md#known-gaps).
+
