@@ -37,6 +37,7 @@ def _ssl_context():
 
 SSL_CONTEXT = _ssl_context()
 _token = None
+_written_at = 0.0  # cached reads older than the last successful write are stale
 _token_source = "none"  # "GITHUB_TOKEN", "gh_cli" or "none": shown in diagnostics; the token itself never is
 
 
@@ -107,7 +108,7 @@ def get(path, params=None, ttl=None):
         url += "?" + urllib.parse.urlencode(params)
     cache_file = CACHE_DIR / (hashlib.sha256(url.encode()).hexdigest()[:24] + ".json")
     ttl = CACHE_TTL if ttl is None else ttl
-    if cache_file.exists() and (OFFLINE or time.time() - cache_file.stat().st_mtime < ttl):
+    if cache_file.exists() and (OFFLINE or (time.time() - cache_file.stat().st_mtime < ttl and cache_file.stat().st_mtime > _written_at)):
         return json.loads(cache_file.read_text())
     if OFFLINE:
         raise GitHubError(f"Offline mode and no cached copy of {path}", status=503)
@@ -194,7 +195,7 @@ def graphql(query, variables, ttl=GRAPHQL_TTL):
         raise GitHubError("GitHub's GraphQL API needs a token: set GITHUB_TOKEN or run `gh auth login`.", status=401)
     key = hashlib.sha256(json.dumps([query, variables], sort_keys=True).encode()).hexdigest()[:24]
     cache_file = CACHE_DIR / f"graphql-{key}.json"
-    if cache_file.exists() and (OFFLINE or time.time() - cache_file.stat().st_mtime < ttl):
+    if cache_file.exists() and (OFFLINE or (time.time() - cache_file.stat().st_mtime < ttl and cache_file.stat().st_mtime > _written_at)):
         return json.loads(cache_file.read_text()), cache_file.stat().st_mtime
     if OFFLINE:
         raise GitHubError("Offline mode and no cached lifecycle data", status=503)
@@ -287,6 +288,8 @@ def write(method, path, body=None):
     except urllib.error.URLError as e:
         # The request may or may not have reached GitHub; callers re-read state instead of assuming either.
         raise GitHubError(f"Could not reach GitHub ({e.reason}). The action may not have been applied; refresh to check.", status=503) from None
+    global _written_at
+    _written_at = time.time()  # queue, analysis and lifecycle reads must now come from GitHub again
     return json.loads(raw) if raw else {}
 
 

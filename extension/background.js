@@ -1,5 +1,6 @@
 // Sieve Workspace — Background Service Worker (Manifest V3)
 const DEFAULT_ENGINE_URL = "http://127.0.0.1:8787";
+const PR_REF_RE = /^[\w.-]+\/[\w.-]+#\d+$/;
 
 // In-memory response cache with TTL
 const cache = new Map();
@@ -20,7 +21,8 @@ async function fetchFromEngine(endpoint, forceFresh = false) {
 
   // Never cache health check or when forceFresh is requested
   const isHealth = endpoint.startsWith("/api/health");
-  if (!isHealth && !forceFresh) {
+  const noCache = isHealth || endpoint.startsWith("/api/pr/"); // live PR state is never cached
+  if (!noCache && !forceFresh) {
     const cached = cache.get(fullUrl);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       return cached.data;
@@ -39,7 +41,7 @@ async function fetchFromEngine(endpoint, forceFresh = false) {
     const elapsed = Date.now() - startTime;
     if (isHealth) {
       data.latency_ms = elapsed;
-    } else {
+    } else if (!noCache) {
       cache.set(fullUrl, { timestamp: Date.now(), data });
     }
     return data;
@@ -100,6 +102,42 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     fetchFromEngine(endpoint, Boolean(msg.forceFresh))
       .then((data) => sendResponse({ ok: true, data }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === "GET_PR_CONTROLS") {
+    if (typeof msg.pr !== "string" || !PR_REF_RE.test(msg.pr)) { sendResponse({ ok: false, error: "Invalid pull request reference." }); return false; }
+    fetchFromEngine(`/api/pr/controls?pr=${encodeURIComponent(msg.pr)}`, true)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === "PR_ACTION") {
+    // Only this extension's own content scripts may ask for a GitHub write; the engine re-validates everything.
+    const bad = sender.id !== chrome.runtime.id ? "Untrusted sender."
+      : typeof msg.pr !== "string" || !PR_REF_RE.test(msg.pr) ? "Invalid pull request reference."
+      : typeof msg.action !== "string" || !/^[a-z_]{1,40}$/.test(msg.action) ? "Invalid action."
+      : !msg.params || typeof msg.params !== "object" || Array.isArray(msg.params) ? "Invalid parameters."
+      : typeof msg.expected_head_sha !== "string" || !/^[0-9a-f]{40}$/.test(msg.expected_head_sha) ? "Missing reviewed head commit."
+      : typeof msg.request_id !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(msg.request_id) ? "Missing request id." : null;
+    if (bad) { sendResponse({ ok: false, error: bad }); return false; }
+    getEngineUrl().then(async (engineUrl) => {
+      try {
+        const res = await fetch(`${engineUrl}/api/pr/action`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Requested-With": "Sieve-Workspace-Extension" },
+          body: JSON.stringify({ pr: msg.pr, action: msg.action, params: msg.params, expected_head_sha: msg.expected_head_sha, request_id: msg.request_id }),
+        });
+        const json = await res.json().catch(() => ({ error: `Engine returned ${res.status}` }));
+        if (!res.ok || !json.ok) { sendResponse({ ok: false, status: res.status, error: json.error || `HTTP ${res.status}` }); return; }
+        cache.clear(); // queue and analysis must be re-read from GitHub
+        broadcastToTabs({ type: "SIEVE_CACHE_CLEARED" });
+        sendResponse({ ok: true, data: json });
+      } catch (err) {
+        sendResponse({ ok: false, error: "Could not reach the Sieve engine. The action may not have been sent; reload the controls to check." });
+      }
+    });
     return true;
   }
 
