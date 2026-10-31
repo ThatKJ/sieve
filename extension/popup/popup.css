@@ -197,3 +197,22 @@ body {
 .switch:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
 .switch:disabled { opacity: 0.5; cursor: progress; }
 @media (prefers-reduced-motion: reduce) { .switch, .switch::after { transition: none; } }
+
+/* SIEVE — HALLOWEEN EDITION: one palette for light and dark, appended last */
+:root, :root:is(*) {
+  --canvas-bg: #0B0A0F; --surface-primary: #121019; --surface-secondary: #191620; --surface-elevated: #211B29;
+  --text-primary: #F8F2EA; --text-secondary: #AAA1B2; --text-muted: #7D7387; --contrast-accent: #FF762E;
+  --border-subtle: #302638; --border-strong: #4A3A57;
+  --status-ready: #82B99A; --status-ready-bg: rgba(130, 185, 154, 0.12);
+  --status-blocked: #E36C69; --status-blocked-bg: rgba(227, 108, 105, 0.12);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) { :root:is(*) { --canvas-bg: #0B0A0F; --surface-primary: #121019; --surface-secondary: #191620;
+  --surface-elevated: #211B29; --text-primary: #F8F2EA; --text-secondary: #AAA1B2; --text-muted: #7D7387; --contrast-accent: #FF762E;
+  --border-subtle: #302638; --border-strong: #4A3A57; } }
+body { background: radial-gradient(420px 220px at 100% 0%, rgba(255, 118, 46, 0.12), transparent 70%),
+  radial-gradient(360px 260px at 0% 100%, rgba(121, 82, 165, 0.16), transparent 70%), var(--canvas-bg); color: var(--text-primary); }
+button.primary, .btn.primary, .btn-primary { background: linear-gradient(180deg, #FF9A4D, #FF762E); color: #1A0E06; border-color: transparent; }
+body::before { content: "🎃 HALLOWEEN EDITION"; display: block; text-align: center; font: 600 9.5px/1 -apple-system, system-ui, sans-serif;
+  letter-spacing: 0.16em; color: #CDB6EA; padding: 6px 0 2px; opacity: 0.85; }
+:focus-visible { outline: 2px solid #FF9A4D; outline-offset: 2px; }

@@ -50,6 +50,65 @@
   let currentHost = null;
   let shadowRoot = null;
 
+  // ---------------------------------------------------------------- maintainer access gate
+  // Effective activation: Sieve enabled AND a signed-in GitHub account AND admin/maintain/write on this
+  // repository, verified through the engine. Nothing mounts until the answer is "granted".
+  const accessGate = window.SieveAccess.createGate({
+    fetchAccess: (repo, viewer, forceFresh) => send({ type: "GET_REPO_ACCESS", repo, viewer, forceFresh }),
+    onChange: (d) => { diag("access_checked", { status: d.status, permission: d.permission || null }); schedule("access"); },
+  });
+
+  function viewerLogin() {
+    // GitHub renders the signed-in account here on every page (and swaps <head> on account changes).
+    return document.querySelector('meta[name="user-login"]')?.getAttribute("content") || null;
+  }
+
+  const ACCESS_TEXT = {
+    denied: (d) => [`Sieve · maintainers only`, `You have ${d.permission === "none" ? "no" : d.permission} access to this repository. Sieve activates for write, maintain or admin.`],
+    signed_out: () => ["Sieve · sign in to verify access", "Sign in to GitHub so Sieve can check your permission on this repository."],
+    unauthenticated: () => ["Sieve · engine needs GitHub sign-in", "The local engine has no valid GitHub token, so it can't verify your permission. Run `gh auth login` or set GITHUB_TOKEN, then restart it."],
+    account_mismatch: (d) => [`Sieve · engine is @${d.login || "unknown"}`, `The engine's GitHub token belongs to @${d.login || "unknown"}, not the account signed in here. Use the same account for both.`],
+    error: (d) => ["Sieve · couldn't verify access", `${d.error || "Permission check failed."} Sieve stays off until access is confirmed.`],
+  };
+
+  function renderAccessNotice(anchor, d) {
+    const make = ACCESS_TEXT[d.status];
+    let chip = document.querySelector(".sieve-access-chip");
+    if (!make || !anchor) { chip?.remove(); return; } // "checking": no flash for a check that takes milliseconds
+    const [label, detail] = make(d);
+    const sig = `${d.key}|${d.status}`;
+    if (chip && chip.dataset.sig === sig && anchor.contains(chip)) return;
+    chip?.remove();
+    injectNativeSwitcherStyle();
+    chip = document.createElement("span");
+    chip.className = "sieve-access-chip";
+    chip.dataset.sig = sig;
+    chip.dataset.status = d.status;
+    chip.setAttribute("role", "status");
+    chip.title = detail;
+    chip.textContent = label;
+    if (d.status === "error") {
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.textContent = "Retry";
+      retry.addEventListener("click", () => { diag("access_retry"); accessGate.refresh(true); schedule("access_retry"); });
+      chip.append(" ", retry);
+    }
+    anchor.append(chip);
+  }
+
+  function removeAccessNotice() { document.querySelectorAll(".sieve-access-chip").forEach((c) => c.remove()); }
+
+  // Not allowed (or not known yet): GitHub exactly as it is, plus at most the small notice.
+  function withholdSieve() {
+    if (state.mounted || state.activationCtl || currentHost?.isConnected || document.querySelector(".sieve-native-switcher, .sieve-pr-pill")) {
+      state.activationToken++; // abandon in-flight activation and loads for the previous repository
+      state.activation = "idle";
+      teardownDom();
+      diag("access_withheld");
+    }
+  }
+
   // ---------------------------------------------------------------- theme
   function detectGitHubTheme() {
     const html = document.documentElement;
@@ -166,6 +225,31 @@
       .sieve-pr-pill:hover {
         background: #30363d;
         transform: translateY(-1px);
+      }
+      .sieve-access-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 10px;
+        padding: 3px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--color-border-default, rgba(110, 118, 129, 0.3));
+        color: var(--color-fg-muted, #7d8590);
+        font: 500 11.5px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        vertical-align: middle;
+        cursor: help;
+      }
+      .sieve-access-chip::before {
+        content: "";
+        width: 6px; height: 6px; border-radius: 50%;
+        background: #8D72B8;
+      }
+      .sieve-access-chip[data-status="error"]::before,
+      .sieve-access-chip[data-status="account_mismatch"]::before,
+      .sieve-access-chip[data-status="unauthenticated"]::before { background: #E8A33D; }
+      .sieve-access-chip button {
+        border: 0; background: transparent; padding: 0; cursor: pointer;
+        color: #FF813A; font: inherit; font-weight: 600; text-decoration: underline;
       }
       html[data-color-mode="light"] .sieve-pr-pill {
         background: #171717;
@@ -355,8 +439,17 @@
       state.routeKey = key;
       state.routeCategory = loc.type;
     }
+    if (loc.type !== "PULLS" && loc.type !== "PR_DETAIL") return removeAccessNotice();
+
+    const access = accessGate.get(`${loc.owner}/${loc.repo}`, viewerLogin());
+    if (access.status !== "granted") {
+      withholdSieve();
+      const anchor = loc.type === "PULLS" ? window.SieveAdapter.findSubnavContainer() : window.SieveAdapter.findPrTitleHeader();
+      return renderAccessNotice(anchor, access);
+    }
+    removeAccessNotice();
     if (loc.type === "PULLS") reconcilePulls(loc, opts);
-    else if (loc.type === "PR_DETAIL") reconcilePrDetail(loc);
+    else reconcilePrDetail(loc);
   }
 
   function leaveRoute() {
@@ -462,6 +555,8 @@
     state.pendingActivation = false;
     domObserver.disconnect();
     teardownDom();
+    removeAccessNotice();
+    accessGate.reset(); // re-enabling verifies permission again
     diag("sieve_disabled");
   }
 
@@ -511,8 +606,8 @@
 
     // 1. GitHub: this page is github.com and its DOM is attached; report the browser session
     act.stage("github", "active");
-    const login = document.querySelector('meta[name="user-login"]')?.getAttribute("content");
-    act.stage("github", "done", login ? `Signed in as @${login}` : "Signed out · public data only");
+    const access = accessGate.current();
+    act.stage("github", "done", access?.status === "granted" ? `@${access.login} · ${access.permission} access verified` : "Signed in");
 
     // 2. Repository, from the URL GitHub is showing
     act.stage("repo", "active");
@@ -715,6 +810,7 @@
         supported: state.routeCategory === "PULLS" || state.routeCategory === "PR_DETAIL",
         mounted: state.mounted && (state.routeCategory !== "PULLS" || Boolean(currentHost?.isConnected)),
         mode: state.routeCategory === "PULLS" ? effectiveMode() : null,
+        access: accessGate.current() && { status: accessGate.current().status, permission: accessGate.current().permission || null },
         autoOpen: state.autoOpen,
         prefsReady: state.prefsReady,
         contextValid: state.contextValid,
@@ -732,6 +828,7 @@
         pill.append(dot, msg.ok ? ` Engine: ${msg.data?.model || "online"}` : " Engine: offline");
       }
     } else if (msg.type === "SIEVE_CACHE_CLEARED") {
+      if (msg.access) { accessGate.refresh(); schedule("access_refresh"); }
       if (state.routeCategory === "PULLS" && effectiveMode() === "sieve") {
         state.loadedKey = null;
         schedule("cache_cleared", { intentional: true });

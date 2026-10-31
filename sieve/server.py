@@ -257,6 +257,8 @@ class Handler(SimpleHTTPRequestHandler):
             if url.path == "/api/analyze":
                 owner, repo, number = core.parse_pr_ref(q.get("pr", ""))
                 return self._json(200, core.analyze(owner, repo, number, use_model=q.get("model") == "1"))
+            if url.path == "/api/permission":
+                return self._json(200, actions.repo_access(*core.parse_repo_ref(q.get("repo", ""))))
             if url.path == "/api/pr/controls":
                 return self._json(200, actions.controls(*core.parse_pr_ref(q.get("pr", ""))))
             if url.path == "/api/atlas":

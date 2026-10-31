@@ -36,6 +36,7 @@
       ],
       "js": [
         "github-adapter.js",
+        "access-gate.js",
         "ui/topology-svg.js",
         "ui/command-center.js",
         "ui/pr-controls.js",

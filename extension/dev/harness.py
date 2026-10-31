@@ -5,6 +5,10 @@ normal flow. A small chrome.* stub forwards messages to the local Sieve engine l
 
     python3 extension/dev/harness.py      # then open http://localhost:8790/ThatKJ/sieve-demo-target/pulls
     ...?engine=http://127.0.0.1:9          # simulate the engine being offline
+    ...?login=ThatKJ&perms={"ThatKJ/sieve-demo-target":"write","pallets/click":"read"}
+                                           # mock the maintainer permission check (no GitHub involved);
+                                           # a value of "error" or "unauthenticated" simulates those replies,
+                                           # login= sets the signed-in account (empty = signed out)
 
 Not part of the extension: nothing in manifest.json references this folder.
 """
@@ -19,6 +23,13 @@ header{padding:16px 24px;border-bottom:1px solid #d0d7de}main{padding:24px}.row{
 <header><div id="subnav-wrap"><h1>Pull requests</h1></div></header>
 <main id="main"></main>
 <script>
+// Signed-in account, as GitHub renders it. ?login= overrides; an empty value means signed out.
+(() => {
+  const login = new URLSearchParams(location.search).get("login");
+  if (login === "") return;
+  const m = document.createElement("meta"); m.name = "user-login"; m.content = login || "ThatKJ";
+  document.head.append(m);
+})();
 // ?nodom=1 starts without GitHub's list, to simulate slow rendering; window.__renderList() adds it.
 window.__renderList = () => {
   const list = document.createElement("div");
@@ -35,6 +46,7 @@ const ENGINE = new URLSearchParams(location.search).get("engine") || "http://127
 const routes = {
   CHECK_HEALTH: () => "/api/health",
   GET_QUEUE: (m) => "/api/queue?repo=" + encodeURIComponent(m.repo),
+  GET_REPO_ACCESS: (m) => "/api/permission?repo=" + encodeURIComponent(m.repo),
   GET_ANALYZE: (m) => "/api/analyze?pr=" + encodeURIComponent(m.pr) + "&model=" + (m.useModel ? 1 : 0),
 };
 window.__sieveMessages = [];
@@ -44,6 +56,16 @@ window.chrome = {
     async sendMessage(m) {
       window.__sieveMessages.push(m.type);
       if (m.type === "CLEAR_CACHE") return { ok: true };
+      const mockPerms = new URLSearchParams(location.search).get("perms");
+      if (m.type === "GET_REPO_ACCESS" && mockPerms) {
+        const role = JSON.parse(mockPerms)[m.repo] || "none";
+        await new Promise((r) => setTimeout(r, 40)); // a real check is never instant
+        if (role === "error") return { ok: false, error: "GitHub returned HTTP 502 while checking repository permissions" };
+        if (role === "unauthenticated") return { ok: true, data: { repo: m.repo, status: "unauthenticated", eligible: false, permission: null, login: null } };
+        const engineLogin = new URLSearchParams(location.search).get("engineLogin") || m.viewer;
+        const eligible = ["admin", "maintain", "write"].includes(role);
+        return { ok: true, data: { repo: m.repo, status: eligible ? "granted" : "denied", eligible, permission: role, login: engineLogin } };
+      }
       if (m.type === "ANALYZE_GEMMA_VISUAL") {
         try {
           const r = await fetch(ENGINE + "/api/gemma/analyze", {
@@ -101,8 +123,10 @@ window.chrome.runtime.onMessage = { addListener: (fn) => window.__sieveListeners
 window.__sieveStatus = () => new Promise((resolve) => window.__sieveListeners.forEach((fn) => fn({ type: "SIEVE_STATUS" }, {}, resolve)));
 </script>
 <script src="/ext/github-adapter.js"></script>
+<script src="/ext/access-gate.js"></script>
 <script src="/ext/ui/topology-svg.js"></script>
 <script src="/ext/ui/command-center.js"></script>
+<script src="/ext/ui/pr-controls.js"></script>
 <script src="/ext/ui/pr-intelligence.js"></script>
 <script src="/ext/ui/activation.js"></script>
 <script src="/ext/content.js"></script>

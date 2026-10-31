@@ -24,8 +24,8 @@
   --hairline-subtle: #f1f5f9;
   
   /* Brand Accents */
-  --signal: #2563eb;            /* Royal Cobalt */
-  --signal-hover: #1d4ed8;
+  --signal: #FF762E;            /* Royal Cobalt */
+  --signal-hover: #E8611C;
   --signal-soft: #eff6ff;       /* Soft Sky Blue */
   --signal-border: #bfdbfe;
   --signal-highlight: #dbeafe;  /* Hero pill background */
@@ -53,7 +53,7 @@
   --shadow-elevated: 0 12px 30px -8px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.04);
   --shadow-browser: 0 30px 80px -20px rgba(15, 23, 42, 0.14), 0 0 0 1px rgba(15, 23, 42, 0.05);
   --shadow-float: 0 10px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
-  --shadow-btn: 0 4px 14px 0 rgba(37, 99, 235, 0.35);
+  --shadow-btn: 0 4px 14px 0 rgba(255, 118, 46, 0.35);
   
   /* Typography Stack */
   --sans: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
@@ -243,7 +243,7 @@ button { font: inherit; color: inherit; }
 .field input:focus {
   outline: none;
   border-color: var(--signal);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  box-shadow: 0 0 0 3px rgba(255, 118, 46, 0.12);
 }
 
 .btn-nav-inspect {
@@ -368,13 +368,13 @@ button { font: inherit; color: inherit; }
 }
 
 .btn.primary.pill-cta {
-  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  background: linear-gradient(180deg, #FF762E 0%, #E8611C 100%);
   color: #ffffff;
   box-shadow: var(--shadow-btn);
   border: none;
 }
 .btn.primary.pill-cta:hover {
-  box-shadow: 0 6px 20px 0 rgba(37, 99, 235, 0.45);
+  box-shadow: 0 6px 20px 0 rgba(255, 118, 46, 0.45);
   transform: translateY(-1px);
 }
 
@@ -461,11 +461,11 @@ main {
   position: relative;
   display: inline-block;
   background: var(--signal-highlight);
-  color: #1d4ed8;
+  color: #E8611C;
   padding: 1px 16px;
   border-radius: var(--r-pill);
   transform: rotate(-1.5deg);
-  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.12);
+  box-shadow: 0 2px 10px rgba(255, 118, 46, 0.12);
   font-style: italic;
   font-weight: 800;
   white-space: nowrap;
@@ -939,13 +939,13 @@ main {
 
 .dual-card-title {
   font: 700 18px var(--sans);
-  color: #1e3a8a;
+  color: #8A3A10;
   margin-bottom: 8px;
 }
 
 .dual-card-desc {
   font-size: 14px;
-  color: #3b82f6;
+  color: #FF9A4D;
   line-height: 1.55;
 }
 
@@ -1118,7 +1118,7 @@ main {
 .atlas-search:focus {
   outline: none;
   border-color: var(--signal);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  box-shadow: 0 0 0 3px rgba(255, 118, 46, 0.12);
 }
 
 .atlas-controls .row {
@@ -1607,7 +1607,7 @@ main {
 .top-toolbar { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
 .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .top-search { height: 32px; padding: 0 12px; border-radius: var(--r-pill); border: 1px solid var(--hairline); background: var(--surface); font: 12.5px var(--mono); color: var(--ink); width: 220px; }
-.top-search:focus { outline: none; border-color: var(--signal); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+.top-search:focus { outline: none; border-color: var(--signal); box-shadow: 0 0 0 3px rgba(255, 118, 46, 0.12); }
 .top-summary-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .top-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--r-pill); font: 12px var(--mono); color: var(--ink-2); background: var(--surface); border: 1px solid var(--hairline); }
 .top-chip strong { color: var(--ink); }
@@ -1656,7 +1656,7 @@ main {
 .top-node.role-test-inferred .top-badge-bg { fill: var(--pass-soft); }
 .top-node.role-test-inferred .top-badge-txt { fill: var(--pass); }
 
-.top-node.selected .top-node-bg { stroke: var(--signal); stroke-width: 2px; filter: drop-shadow(0 4px 14px rgba(37, 99, 235, 0.25)); }
+.top-node.selected .top-node-bg { stroke: var(--signal); stroke-width: 2px; filter: drop-shadow(0 4px 14px rgba(255, 118, 46, 0.25)); }
 .top-node.neighbor-active .top-node-bg { stroke: var(--signal); stroke-width: 1.5px; fill: #fcfcfd; }
 .top-node.dimmed { opacity: 0.15; }
 .top-node.filter-dimmed { opacity: 0.12; }
@@ -1778,3 +1778,40 @@ main {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* =====================================================================
+   SIEVE — HALLOWEEN EDITION (appended last; token overrides + inverted-ink fixes)
+   ===================================================================== */
+:root {
+  --surface: #121019; --surface-2: #191620; --surface-3: #211B29; --solid: #191620;
+  --ink: #F8F2EA; --ink-2: #D2C8DA; --ink-3: #AAA1B2; --ink-muted: #7D7387;
+  --hairline: #302638; --hairline-2: #3E3149; --hairline-subtle: #1E1925;
+  --signal: #FF762E; --signal-hover: #FF9A4D; --signal-soft: rgba(255, 118, 46, 0.10);
+  --signal-border: rgba(255, 118, 46, 0.35); --signal-highlight: rgba(255, 118, 46, 0.16);
+  --fail: #E36C69; --fail-soft: rgba(227, 108, 105, 0.12); --fail-border: rgba(227, 108, 105, 0.35);
+  --warn: #E9A34B; --warn-soft: rgba(233, 163, 75, 0.12); --warn-border: rgba(233, 163, 75, 0.35);
+  --pass: #82B99A; --pass-soft: rgba(130, 185, 154, 0.12); --pass-border: rgba(130, 185, 154, 0.35);
+  --glass: rgba(25, 22, 32, 0.78); --glass-edge: rgba(121, 82, 165, 0.25);
+  --hw-purple: #7952A5; --hw-purple-deep: #39244F;
+  color-scheme: dark;
+}
+body {
+  background:
+    radial-gradient(1100px 600px at 85% -5%, rgba(255, 118, 46, 0.10), transparent 60%),
+    radial-gradient(900px 700px at -10% 40%, rgba(121, 82, 165, 0.13), transparent 60%),
+    linear-gradient(180deg, #0B0A0F 0%, #0E0C13 50%, #0B0A0F 100%) fixed;
+  color: var(--ink);
+}
+/* Elements that used dark ink as a background with white text: orange with dark text instead */
+.skip, .btn.primary, .btn.primary.pill-cta, .judge-tag, .step-badge, .btn[aria-pressed="true"] {
+  background: linear-gradient(180deg, #FF9A4D, #FF762E); color: #1A0E06; border-color: transparent;
+}
+.btn.primary:hover, .btn.primary.pill-cta:hover { filter: brightness(1.06); box-shadow: 0 8px 22px rgba(255, 118, 46, 0.3); }
+:focus-visible { outline: 2px solid #FF9A4D; outline-offset: 2px; }
+::selection { background: rgba(255, 118, 46, 0.35); color: #F8F2EA; }
+/* Seasonal mark: a faint crescent moon top-right, decorative only */
+body::after {
+  content: ""; position: fixed; top: 84px; right: 6vw; width: 34px; height: 34px; border-radius: 50%;
+  box-shadow: -8px 5px 0 0 rgba(255, 196, 140, 0.22); pointer-events: none; z-index: 0;
+}
+@media (max-width: 640px) { body::after { display: none; } }

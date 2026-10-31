@@ -21,7 +21,7 @@ async function fetchFromEngine(endpoint, forceFresh = false) {
 
   // Never cache health check or when forceFresh is requested
   const isHealth = endpoint.startsWith("/api/health");
-  const noCache = isHealth || endpoint.startsWith("/api/pr/"); // live PR state is never cached
+  const noCache = isHealth || endpoint.startsWith("/api/pr/") || endpoint.startsWith("/api/permission"); // live state: never in the shared cache
   if (!noCache && !forceFresh) {
     const cached = cache.get(fullUrl);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
@@ -48,6 +48,28 @@ async function fetchFromEngine(endpoint, forceFresh = false) {
   } catch (err) {
     throw new Error(err.message || "Cannot connect to Sieve Engine. Is `python3 -m sieve --serve` running?");
   }
+}
+
+// Repository permission results, keyed by GitHub account AND repository. Never shared across either.
+// Only definite answers are cached (60s); failures are not, so Retry always asks again.
+const accessCache = new Map();
+const accessInFlight = new Map();
+const ACCESS_TTL_MS = 60 * 1000;
+const REPO_REF_RE = /^[\w.-]+\/[\w.-]+$/;
+
+function getRepoAccess(repo, viewer, forceFresh) {
+  const key = `${viewer.toLowerCase()}|${repo.toLowerCase()}`;
+  const hit = accessCache.get(key);
+  if (!forceFresh && hit && Date.now() - hit.timestamp < ACCESS_TTL_MS) return Promise.resolve(hit.data);
+  if (!forceFresh && accessInFlight.has(key)) return accessInFlight.get(key); // one request per key at a time
+  const p = fetchFromEngine(`/api/permission?repo=${encodeURIComponent(repo)}`, true)
+    .then((data) => {
+      if (data.status === "granted" || data.status === "denied") accessCache.set(key, { timestamp: Date.now(), data });
+      return data;
+    })
+    .finally(() => { if (accessInFlight.get(key) === p) accessInFlight.delete(key); });
+  accessInFlight.set(key, p);
+  return p;
 }
 
 function broadcastToTabs(message) {
@@ -105,6 +127,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "GET_REPO_ACCESS") {
+    if (typeof msg.repo !== "string" || !REPO_REF_RE.test(msg.repo) || typeof msg.viewer !== "string" || !msg.viewer) {
+      sendResponse({ ok: false, error: "Invalid repository or account." }); return false;
+    }
+    getRepoAccess(msg.repo, msg.viewer, Boolean(msg.forceFresh))
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === "GET_PR_CONTROLS") {
     if (typeof msg.pr !== "string" || !PR_REF_RE.test(msg.pr)) { sendResponse({ ok: false, error: "Invalid pull request reference." }); return false; }
     fetchFromEngine(`/api/pr/controls?pr=${encodeURIComponent(msg.pr)}`, true)
@@ -143,7 +175,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "CLEAR_CACHE") {
     cache.clear();
-    broadcastToTabs({ type: "SIEVE_CACHE_CLEARED" });
+    accessCache.clear();
+    broadcastToTabs({ type: "SIEVE_CACHE_CLEARED", access: true });
     sendResponse({ ok: true, timestamp: Date.now() });
     return true;
   }

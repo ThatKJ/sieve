@@ -1652,3 +1652,108 @@ code, .mono { font-family: var(--sieve-font-mono); font-size: 0.88em; }
 .sieve-ctl-msg.pass { background: var(--sieve-status-pass-bg); color: var(--sieve-status-pass); }
 .sieve-ctl-msg.warn { background: var(--sieve-status-warn-bg); color: var(--sieve-status-warn); }
 .sieve-ctl-msg.fail { background: var(--sieve-status-fail-bg); color: var(--sieve-status-fail); }
+
+/* =====================================================================
+   SIEVE — HALLOWEEN EDITION
+   One token layer, appended last so it wins over both the light and the GitHub-dark palettes above.
+   Orange = interaction, purple = atmosphere / AI. Layouts are untouched.
+   ===================================================================== */
+:host,
+:host([data-theme="dark"]),
+:host-context([data-color-mode]),
+:host-context(html[data-color-mode="dark"]),
+:host-context(body[data-color-mode="dark"]) {
+  --hw-bg: #0B0A0F; --hw-bg-2: #121019; --hw-card: #191620; --hw-elevated: #211B29;
+  --hw-text: #F8F2EA; --hw-text-2: #AAA1B2; --hw-muted: #7D7387;
+  --hw-orange: #FF762E; --hw-orange-hi: #FF9A4D; --hw-purple: #7952A5; --hw-purple-deep: #39244F;
+  --hw-border: #302638; --hw-success: #82B99A; --hw-warn: #E9A34B; --hw-error: #E36C69;
+
+  color: var(--hw-text);
+  --sieve-bg-canvas: var(--hw-bg);
+  --sieve-surface-primary: var(--hw-card);
+  --sieve-surface-secondary: var(--hw-bg-2);
+  --sieve-surface-elevated: var(--hw-elevated);
+  --sieve-surface-contrast: #0F0C14;
+  --sieve-surface-contrast-subtle: var(--hw-purple-deep);
+  --sieve-text-primary: var(--hw-text);
+  --sieve-text-secondary: var(--hw-text-2);
+  --sieve-text-muted: var(--hw-muted);
+  --sieve-text-inverted: var(--hw-text);
+  --sieve-border-subtle: var(--hw-border);
+  --sieve-border-glass: rgba(121, 82, 165, 0.28);
+  --sieve-border-contrast: rgba(255, 118, 46, 0.22);
+  --sieve-workspace-bg: radial-gradient(1200px 520px at 85% -10%, rgba(255, 118, 46, 0.10), transparent 60%),
+                        radial-gradient(900px 600px at -10% 110%, rgba(121, 82, 165, 0.14), transparent 60%), var(--hw-bg);
+  --sieve-sidebar-bg: rgba(18, 16, 25, 0.86);
+  --sieve-nav-hover: rgba(255, 118, 46, 0.08);
+  --sieve-modal-bg: radial-gradient(900px 380px at 100% 0%, rgba(255, 118, 46, 0.09), transparent 65%),
+                    radial-gradient(700px 500px at 0% 100%, rgba(121, 82, 165, 0.12), transparent 60%),
+                    linear-gradient(180deg, #16121D 0%, var(--hw-bg-2) 40%, var(--hw-bg) 100%);
+  --sieve-modal-head-bg: rgba(18, 16, 25, 0.92);
+  --sieve-shadow-soft: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --sieve-shadow-elevated: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(121, 82, 165, 0.08);
+  --sieve-shadow-contrast: 0 16px 36px rgba(0, 0, 0, 0.6);
+  --sieve-shadow-floating: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 80px rgba(255, 118, 46, 0.06);
+  --sieve-status-pass: var(--hw-success);
+  --sieve-status-pass-bg: rgba(130, 185, 154, 0.12);
+  --sieve-status-warn: var(--hw-warn);
+  --sieve-status-warn-bg: rgba(233, 163, 75, 0.12);
+  --sieve-status-fail: var(--hw-error);
+  --sieve-status-fail-bg: rgba(227, 108, 105, 0.12);
+}
+
+/* Interaction colour: orange primary buttons with dark text (contrast ≈ 7.6:1) */
+.btn-sieve.primary, .scc-btn.primary {
+  background: linear-gradient(180deg, var(--hw-orange-hi), var(--hw-orange)); color: #1A0E06;
+  border-color: transparent; box-shadow: 0 6px 18px rgba(255, 118, 46, 0.22);
+}
+.btn-sieve.primary:hover, .scc-btn.primary:hover { filter: brightness(1.06); box-shadow: 0 8px 22px rgba(255, 118, 46, 0.32); }
+.btn-sieve.primary:active, .scc-btn.primary:active { transform: translateY(1px); }
+.btn-sieve, .btn-sieve.secondary, .scc-btn.ghost { background: var(--hw-purple-deep); color: var(--hw-text); border-color: var(--hw-border); }
+.btn-sieve:hover, .scc-btn.ghost:hover { border-color: rgba(255, 118, 46, 0.45); }
+.btn-sieve:focus-visible, .scc-btn:focus-visible, .sieve-ctl select:focus-visible, .sieve-ctl-input:focus-visible,
+.sieve-composer-area:focus-visible { outline: 2px solid var(--hw-orange-hi); outline-offset: 2px; }
+
+/* Cards: charcoal-purple, muted borders, orange only when selected */
+.sieve-ws-block { background: var(--hw-card); border-color: var(--hw-border); }
+.sieve-ws-block.contrast { background: radial-gradient(500px 200px at 100% 0%, rgba(255, 118, 46, 0.14), transparent 70%), linear-gradient(180deg, #221A2C 0%, #15111C 100%);
+  border-color: rgba(255, 118, 46, 0.25); }
+.scc-kpi { background: var(--hw-card); border-color: var(--hw-border); transition: border-color 160ms, box-shadow 160ms; }
+.scc-kpi:hover { border-color: rgba(255, 118, 46, 0.35); }
+.scc-kpi[aria-pressed="true"], .scc-chip[aria-pressed="true"] { border-color: var(--hw-orange); box-shadow: inset 0 0 0 1px var(--hw-orange), 0 0 18px rgba(255, 118, 46, 0.12); }
+.scc-row[aria-current="true"] { box-shadow: inset 3px 0 0 var(--hw-orange); background: rgba(255, 118, 46, 0.06); }
+.scc-row:hover { background: rgba(121, 82, 165, 0.10); }
+
+/* AI-assisted insight = purple */
+.sieve-vi-block, .sieve-vi-chat-box { border-color: rgba(121, 82, 165, 0.45); }
+.sieve-vi-model-badge, .sieve-ws-src { background: rgba(121, 82, 165, 0.18); color: #CDB6EA; border-color: rgba(121, 82, 165, 0.4); }
+.sieve-vi-pill.hypothesis { background: rgba(121, 82, 165, 0.18); color: #CDB6EA; }
+
+/* Form controls */
+.sieve-composer-area, .sieve-ctl select, .sieve-ctl-input, .scc-search, .scc-num, .sieve-vi-chat-input {
+  background: var(--hw-bg-2); color: var(--hw-text); border-color: var(--hw-border);
+}
+.sieve-ctl-confirm { border-color: rgba(255, 118, 46, 0.4); background: linear-gradient(180deg, #1E1726, var(--hw-card)); }
+.sieve-ctl-more summary { color: var(--hw-orange-hi); }
+
+/* Dependency topology: readable edges and labels on the dark canvas */
+.topo-canvas-mount svg path[fill="none"] { stroke: rgba(170, 161, 178, 0.32); }
+.topo-canvas-mount svg text { fill: var(--hw-text-2); }
+
+/* Links and spinner */
+.sieve-ws-link { color: var(--hw-orange-hi); }
+.sieve-ws-spinner { border-color: rgba(255, 154, 77, 0.25); border-top-color: var(--hw-orange); }
+
+/* Seasonal identity: a small pumpkin mark + edition label on the PR Intelligence eyebrow */
+.sieve-ws-eyebrow { color: var(--hw-orange-hi); letter-spacing: 0.06em; }
+.sieve-ws-eyebrow::before { content: "🎃"; margin-right: 6px; filter: saturate(0.9); }
+.sieve-ws-eyebrow::after { content: "HALLOWEEN EDITION"; margin-left: 10px; padding: 1px 7px; border-radius: 999px; font-size: 9.5px;
+  letter-spacing: 0.14em; color: #CDB6EA; border: 1px solid rgba(121, 82, 165, 0.45); background: rgba(57, 36, 79, 0.5); vertical-align: 1px; }
+
+/* Atmosphere: a faint crescent moon in the overlay corner, behind content, never over text */
+.sieve-ws { position: relative; border-color: var(--hw-border); }
+.sieve-ws::before { content: ""; position: absolute; top: 18px; right: 64px; width: 26px; height: 26px; border-radius: 50%;
+  box-shadow: -6px 4px 0 0 rgba(255, 196, 140, 0.20); pointer-events: none; z-index: 0; animation: sieve-hw-float 7s ease-in-out infinite; }
+.sieve-ws-backdrop { background: radial-gradient(800px 500px at 50% 0%, rgba(255, 118, 46, 0.08), transparent 70%), rgba(6, 5, 9, 0.72); }
+@keyframes sieve-hw-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .sieve-ws::before { animation: none; } .btn-sieve.primary:active, .scc-btn.primary:active { transform: none; } }

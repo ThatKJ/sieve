@@ -96,6 +96,30 @@ def access():
     return {"mode": mode, **{k: info[k] for k in ("source", "kind", "login", "scopes", "write_capable")}}
 
 
+MAINTAINER_ROLES = {"admin", "maintain", "write"}
+
+
+def repo_access(owner, repo):
+    """Whether Sieve may activate on owner/repo for the engine's GitHub account.
+
+    Only admin, maintain and write qualify; triage, read, none and anything unknown do not. This gates
+    the UI. Every write is still checked again on its own in availability(), against GitHub's live
+    viewerPermission, so hiding the UI is never the only protection.
+    """
+    ref = f"{owner}/{repo}"
+    if not github._get_token():
+        return {"repo": ref, "status": "unauthenticated", "eligible": False, "permission": None, "login": None}
+    try:
+        p = github.repo_permission(owner, repo)
+    except github.GitHubError as e:
+        if e.status == 401:
+            return {"repo": ref, "status": "unauthenticated", "eligible": False, "permission": None, "login": None}
+        raise
+    eligible = p["permission"] in MAINTAINER_ROLES
+    return {"repo": ref, "status": "granted" if eligible else "denied", "eligible": eligible,
+            "permission": p["permission"], "login": p["login"]}
+
+
 def _check(ctx):
     # ponytail: summarises the latest commit's rollup only (first 100 contexts); enough to explain a block.
     name = ctx.get("name") or ctx.get("context") or "check"

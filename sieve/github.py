@@ -137,6 +137,61 @@ def get(path, params=None, ttl=None):
     return data
 
 
+PERMISSION_DIR = CACHE_DIR.parent / "permissions"
+PERMISSION_SNAPSHOT_MAX_AGE = 24 * 3600  # offline mode only: how old a verified permission may be
+# GitHub's REST `permissions` object, strongest first, mapped to role names.
+_ROLE_FLAGS = (("admin", "admin"), ("maintain", "maintain"), ("push", "write"), ("triage", "triage"), ("pull", "read"))
+
+
+def _permission_file(owner, repo):
+    # Keyed by the token itself (hashed) and the repository: a result is never reused for another account or repo.
+    key = f"{_get_token()}\n{owner.lower()}/{repo.lower()}"
+    return PERMISSION_DIR / (hashlib.sha256(key.encode()).hexdigest()[:32] + ".json")
+
+
+def repo_permission(owner, repo):
+    """The configured token's own role on owner/repo: admin, maintain, write, triage, read or none.
+
+    Read live from GET /repos/{owner}/{repo} on every call. It deliberately bypasses `get()`, whose
+    cache is keyed by URL only and so is shared between accounts. Offline mode can only replay a
+    snapshot this same token verified online in the last 24 hours. Raises GitHubError when the role
+    cannot be determined; callers must treat that as "no access", never as "probably fine".
+    """
+    token = _get_token()
+    if not token:
+        raise GitHubError("No GitHub token configured", status=401)
+    snapshot = _permission_file(owner, repo)
+    if OFFLINE:
+        if snapshot.exists() and time.time() - snapshot.stat().st_mtime < PERMISSION_SNAPSHOT_MAX_AGE:
+            return json.loads(snapshot.read_text())
+        raise GitHubError("Offline mode: this repository's permission was not verified online in the last 24 hours", status=503)
+    req = urllib.request.Request(f"{API}/repos/{owner}/{repo}", headers={
+        "Accept": "application/vnd.github+json", "User-Agent": "sieve-pr-intake", "X-GitHub-Api-Version": "2022-11-28",
+        "Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=SSL_CONTEXT) as resp:
+            perms = json.loads(resp.read()).get("permissions") or {}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:  # private repo the token can't see, or no such repo: either way, no access
+            perms = {}
+        elif e.code == 401:
+            raise GitHubError("GitHub rejected the engine's token (expired or revoked)", status=401) from None
+        elif e.code in (403, 429):
+            raise GitHubError("GitHub rate limit hit while checking repository permissions", status=429) from None
+        else:
+            raise GitHubError(f"GitHub returned HTTP {e.code} while checking repository permissions", status=502) from None
+    except urllib.error.URLError as e:
+        raise GitHubError(f"Could not reach GitHub to check repository permissions ({e.reason})", status=503) from None
+    role = next((name for flag, name in _ROLE_FLAGS if perms.get(flag) is True), "none")
+    login = token_info().get("login")
+    if not login:
+        raise GitHubError("Could not confirm which GitHub account the engine's token belongs to", status=503)
+    result = {"login": login, "permission": role}
+    PERMISSION_DIR.mkdir(parents=True, exist_ok=True)
+    snapshot.write_text(json.dumps(result))
+    return result
+
+
 def pull(owner, repo, number):
     return get(f"/repos/{owner}/{repo}/pulls/{number}")
 

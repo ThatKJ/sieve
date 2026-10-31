@@ -117,6 +117,16 @@
   // Ask the content script in the active tab what it actually did. The engine being online says
   // nothing about whether Sieve is present or mounted on this page.
   const ROUTE_LABEL = { PULLS: "Pull request list", PR_DETAIL: "Pull request", OTHER: "Not a pull request page" };
+  const ACCESS_LABEL = { granted: "verified", denied: "not a maintainer", checking: "checking…", signed_out: "signed out",
+    unauthenticated: "engine not signed in", account_mismatch: "account mismatch", error: "check failed" };
+  const ACCESS_NOTE = {
+    checking: "Checking your permission on this repository…",
+    denied: "Sieve activates only for accounts with write, maintain or admin permission on this repository.",
+    signed_out: "Sign in to GitHub so Sieve can verify your permission on this repository.",
+    unauthenticated: "The engine has no valid GitHub token. Run gh auth login or set GITHUB_TOKEN, then restart it.",
+    account_mismatch: "The engine's GitHub token belongs to a different account than the one signed in here.",
+    error: "Couldn't verify permission, so Sieve stays off. Use Retry on the page or Clear Cache here.",
+  };
   function setTabNote(text) {
     $("tab-note").hidden = !text;
     $("tab-note").textContent = text || "";
@@ -130,6 +140,7 @@
         $("tab-route").textContent = "Not a GitHub page";
         $("tab-mounted").textContent = "–";
         $("tab-activation").textContent = "–";
+        $("tab-access").textContent = "–";
         setTabNote("");
         return;
       }
@@ -144,6 +155,8 @@
         }
         $("tab-script").textContent = st.contextValid ? "running" : "stale (refresh tab)";
         $("tab-route").textContent = ROUTE_LABEL[st.route] || st.route;
+        const acc = st.access;
+        $("tab-access").textContent = !acc ? "–" : (ACCESS_LABEL[acc.status] || acc.status) + (acc.permission ? ` (${acc.permission})` : "");
         $("tab-activation").textContent = { idle: "not run", running: "in progress", complete: "complete", failed: "failed" }[st.activation] || "–";
         if (st.enabled === false) {
           $("tab-mounted").textContent = "no (Sieve disabled)";
@@ -158,6 +171,11 @@
         if (st.route === "PULLS" && st.mode === "native") {
           $("tab-mounted").textContent = "native view selected";
           setTabNote("Choose \u201cSieve Workspace\u201d next to the page title to switch.");
+          return;
+        }
+        if (acc && acc.status !== "granted") {
+          $("tab-mounted").textContent = "no";
+          setTabNote(ACCESS_NOTE[acc.status] || "");
           return;
         }
         $("tab-mounted").textContent = st.mounted ? "yes" : "waiting for page";
