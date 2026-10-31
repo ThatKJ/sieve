@@ -504,6 +504,9 @@ window.SievePRIntelligence = (function () {
       .then(() => { copy.textContent = "Copied"; setTimeout(() => { copy.textContent = "Copy response"; }, 1500); })
       .catch(() => { copy.textContent = "Select and copy"; }));
 
+    const controlsHost = el("div");
+    if (window.SievePRControls) window.SievePRControls.mount(controlsHost, `${p.owner}/${p.repo}#${p.number}`);
+
     setBody(s, [
       header(s, {
         eyebrow: `${p.owner}/${p.repo} · pull request #${p.number}`, title: p.title || `#${p.number}`,
@@ -520,9 +523,10 @@ window.SievePRIntelligence = (function () {
           block("Claim vs reality", "What the pull request says, checked against what it contains.", ledger.some(Boolean) ? ledger.filter(Boolean) : el("p", { class: "sieve-ws-sub", text: "No findings." })),
         ]),
         el("aside", { class: "sieve-ws-side" }, [
+          block("Pull request controls", "Live from GitHub. Every action needs your confirmation; Sieve's AI never acts on its own.", controlsHost),
           block("Review checklist", "Recommended next steps. Sieve has not run any of them.", steps.length ? checklist : el("p", { class: "sieve-ws-sub", text: "Nothing in the import graph depends on these files." })),
           block("Related work", null, related.length ? el("ul", { class: "sieve-ws-related" }, related) : el("p", { class: "sieve-ws-sub", text: "No linked issues, competing PRs or recent history found." })),
-          block("Suggested response", "Draft only. Sieve never posts to GitHub.", [area, el("div", { class: "sieve-ws-actions" }, [copy, ghLink(p.url, "Reply on GitHub ↗", "btn-sieve")])]),
+          block("Suggested response", "Draft only. Nothing is posted unless you submit it in Pull request controls.", [area, el("div", { class: "sieve-ws-actions" }, [copy, ghLink(p.url, "Reply on GitHub ↗", "btn-sieve")])]),
         ]),
       ]),
     ]);

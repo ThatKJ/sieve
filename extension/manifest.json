@@ -38,6 +38,7 @@
         "github-adapter.js",
         "ui/topology-svg.js",
         "ui/command-center.js",
+        "ui/pr-controls.js",
         "ui/pr-intelligence.js",
         "ui/activation.js",
         "content.js"

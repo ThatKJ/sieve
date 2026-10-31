@@ -1630,3 +1630,25 @@ code, .mono { font-family: var(--sieve-font-mono); font-size: 0.88em; }
 .scc button:focus-visible, .scc a:focus-visible, .scc input:focus-visible, .scc select:focus-visible { outline: 2px solid var(--sieve-text-primary); outline-offset: 2px; }
 @media (max-width: 1100px) { .scc-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .scc-split { grid-template-columns: 1fr; } .scc-detail { position: static; } }
 @media (max-width: 600px) { .scc-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .scc-search { width: 100%; } }
+
+/* PR Control Center (ui/pr-controls.js) */
+.sieve-ctl { display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; color: var(--sieve-text-primary); }
+.sieve-ctl h4 { font-size: 12px; font-weight: 650; margin: 10px 0 4px; color: var(--sieve-text-primary); }
+.sieve-ctl select, .sieve-ctl-input { font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--sieve-border-subtle); background: var(--sieve-surface-elevated); color: var(--sieve-text-primary); max-width: 100%; }
+.sieve-ctl-state { display: grid; gap: 4px; margin: 0; }
+.sieve-ctl-state div { display: grid; grid-template-columns: 92px 1fr; gap: 8px; }
+.sieve-ctl-state dt { color: var(--sieve-text-secondary); }
+.sieve-ctl-state dd { margin: 0; overflow-wrap: anywhere; }
+.sieve-ctl-forms { display: flex; flex-direction: column; gap: 6px; }
+.sieve-ctl-act { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.sieve-ctl-act .btn-sieve:disabled { opacity: .5; cursor: not-allowed; }
+.sieve-ctl-why { font-size: 11.5px; color: var(--sieve-text-secondary); }
+.sieve-ctl-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.sieve-ctl-more summary { cursor: pointer; font-weight: 600; margin-top: 8px; }
+.sieve-ctl-confirm { border: 1px solid var(--sieve-border-subtle); border-radius: 10px; padding: 12px; background: var(--sieve-surface-elevated); }
+.sieve-ctl-confirm ul { margin: 8px 0; padding-left: 18px; overflow-wrap: anywhere; }
+.sieve-ctl-msg { border-radius: 8px; padding: 8px 10px; }
+.sieve-ctl-msg p { margin: 4px 0 0; }
+.sieve-ctl-msg.pass { background: var(--sieve-status-pass-bg); color: var(--sieve-status-pass); }
+.sieve-ctl-msg.warn { background: var(--sieve-status-warn-bg); color: var(--sieve-status-warn); }
+.sieve-ctl-msg.fail { background: var(--sieve-status-fail-bg); color: var(--sieve-status-fail); }
